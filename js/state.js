@@ -4,7 +4,7 @@ export const START = { center: [38.4933, 48.948], zoom: 13.5, pitch: 50 };
 
 export const state = {
   scenes: [],          // конфіги сцен зі scenes.json (у пам'яті)
-  runtime: new Map(),  // id -> { loaded, loading, pendingBytes, committed }
+  runtime: new Map(),  // id -> { loaded, loading, bytesCache, needsCommit }
   dirty: false,        // є незбережені зміни конфігурації
   editing: false,
   selectedId: null,
@@ -13,7 +13,12 @@ export const state = {
 
 export function rt(id){
   let r = state.runtime.get(id);
-  if (!r){ r = { loaded: false, loading: false, pendingBytes: null, committed: true }; state.runtime.set(id, r); }
+  if (!r){
+    // bytesCache — сирі байти .splat у пам'яті (для авто-рівня/запікання без
+    // повторного завантаження); needsCommit — файл ще не закомічено в репозиторій
+    r = { loaded: false, loading: false, bytesCache: null, needsCommit: false };
+    state.runtime.set(id, r);
+  }
   return r;
 }
 

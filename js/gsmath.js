@@ -93,6 +93,108 @@ export function cropKeeps(crop, e, n, u){
   return true;
 }
 
+// Власний вектор найменшого власного числа симетричної 3×3 матриці
+// (метод Якобі). m = [xx, xy, xz, yy, yz, zz].
+export function smallestEigenvector3(m){
+  const a = [[m[0], m[1], m[2]], [m[1], m[3], m[4]], [m[2], m[4], m[5]]];
+  const v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let sweep = 0; sweep < 30; sweep++){
+    const off = Math.abs(a[0][1]) + Math.abs(a[0][2]) + Math.abs(a[1][2]);
+    if (off < 1e-15) break;
+    for (let p = 0; p < 2; p++) for (let q = p + 1; q < 3; q++){
+      if (Math.abs(a[p][q]) < 1e-18) continue;
+      const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+      const t = theta === 0 ? 1 : Math.sign(theta) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+      const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+      for (let k = 0; k < 3; k++){
+        const akp = a[k][p], akq = a[k][q];
+        a[k][p] = c * akp - s * akq; a[k][q] = s * akp + c * akq;
+      }
+      for (let k = 0; k < 3; k++){
+        const apk = a[p][k], aqk = a[q][k];
+        a[p][k] = c * apk - s * aqk; a[q][k] = s * apk + c * aqk;
+      }
+      for (let k = 0; k < 3; k++){
+        const vkp = v[k][p], vkq = v[k][q];
+        v[k][p] = c * vkp - s * vkq; v[k][q] = s * vkp + c * vkq;
+      }
+    }
+  }
+  const evs = [a[0][0], a[1][1], a[2][2]];
+  let mi = 0;
+  if (evs[1] < evs[mi]) mi = 1;
+  if (evs[2] < evs[mi]) mi = 2;
+  const n = [v[0][mi], v[1][mi], v[2][mi]];
+  const len = Math.hypot(n[0], n[1], n[2]) || 1;
+  return [n[0] / len, n[1] / len, n[2] / len];
+}
+
+// Авто-рівень: за хмарою точок знаходить домінантну площину (землю),
+// повертає кути rx/ry, що кладуть її горизонтально (rz не чіпає — це напрям
+// на північ), і alt, що ставить землю на рівень карти.
+// crop (той самий формат, що в шейдері) — необов'язковий фільтр: якщо заданий,
+// аналізуються лише сплати всередині обрізки (сфера «неба» Luma не заважає).
+// Повертає null, якщо точок замало.
+export function estimateLevel(pos, count, params, crop){
+  const M = crop ? enuMatrix(params) : null;
+  const step = Math.max(1, Math.floor(count / 60000));
+  const px = [], py = [], pz = [];
+  for (let i = 0; i < count; i += step){
+    const x = pos[i*3], y = pos[i*3+1], z = pos[i*3+2];
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+    if (M){
+      const e = M[0]*x + M[1]*y + M[2]*z;
+      const nn = M[3]*x + M[4]*y + M[5]*z;
+      const u = M[6]*x + M[7]*y + M[8]*z;
+      if (!cropKeeps(crop, e, nn, u)) continue;
+    }
+    px.push(x); py.push(y); pz.push(z);
+  }
+  const n0 = px.length;
+  if (n0 < 100) return null;
+  let cx = 0, cy = 0, cz = 0;
+  for (let i = 0; i < n0; i++){ cx += px[i]; cy += py[i]; cz += pz[i]; }
+  cx /= n0; cy /= n0; cz /= n0;
+  let xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+  for (let i = 0; i < n0; i++){
+    const dx = px[i]-cx, dy = py[i]-cy, dz = pz[i]-cz;
+    xx += dx*dx; xy += dx*dy; xz += dx*dz; yy += dy*dy; yz += dy*dz; zz += dz*dz;
+  }
+  let n = smallestEigenvector3([xx/n0, xy/n0, xz/n0, yy/n0, yz/n0, zz/n0]);
+  // знак «вгору»: над землею більше маси (будівлі, дерева) — довший хвіст угору,
+  // тож середнє проєкцій має бути більшим за медіану. Якщо виразного «верху»
+  // немає (майже симетричний шум), не перевертаємо — тримаємось поточної
+  // орієнтації сцени.
+  const proj = new Float64Array(n0);
+  for (let i = 0; i < n0; i++)
+    proj[i] = n[0]*(px[i]-cx) + n[1]*(py[i]-cy) + n[2]*(pz[i]-cz);
+  const sorted = Float64Array.from(proj).sort();
+  const median = sorted[n0 >> 1];
+  let mean = 0;
+  for (let i = 0; i < n0; i++) mean += proj[i];
+  mean /= n0;
+  const spread = (sorted[Math.floor(n0 * 0.9)] - sorted[Math.floor(n0 * 0.1)]) || 1;
+  const skew = mean - median;
+  if (Math.abs(skew) > 0.02 * spread){
+    if (skew < 0) n = [-n[0], -n[1], -n[2]];
+  } else {
+    const Rc = rotationFromEuler(params.rx || 0, params.ry || 0, params.rz || 0);
+    if (n[0]*Rc[6] + n[1]*Rc[7] + n[2]*Rc[8] < 0) n = [-n[0], -n[1], -n[2]];
+  }
+  const DEG = 180 / Math.PI;
+  const rx = Math.atan2(n[1], n[2]) * DEG;
+  const ry = Math.atan2(-n[0], Math.hypot(n[1], n[2])) * DEG;
+  // рівень землі — нижній перцентиль проєкцій відносно якоря сцени
+  const abs = new Float64Array(n0);
+  for (let i = 0; i < n0; i++) abs[i] = n[0]*px[i] + n[1]*py[i] + n[2]*pz[i];
+  abs.sort();
+  const ground = abs[Math.floor(n0 * 0.08)];
+  let alt = -(params.scale || 1) * ground;
+  if (alt < -80) alt = -80;
+  if (alt > 200) alt = 200;
+  return { rx, ry, alt };
+}
+
 // Індекси сплатів, що лишаються після обрізки (для запікання на CPU).
 export function filterCrop(pos, count, params, crop){
   const M = enuMatrix(params);

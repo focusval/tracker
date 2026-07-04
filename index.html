@@ -29,9 +29,6 @@
   <button id="sheetGrip" class="grip" type="button" aria-label="Розгорнути панель"><i></i></button>
   <div class="sheet-body">
 
-    <h2>Локації</h2>
-    <div id="sceneList" class="scene-list"></div>
-
     <div id="editPanel" class="edit-panel">
       <form id="tokenForm" hidden>
         <h2>Режим редагування</h2>
@@ -68,21 +65,23 @@
           <label class="field">Масштаб <output id="scaleVal"></output>
             <input id="scaleRange" type="range" min="0" max="1000" step="1">
           </label>
+          <button id="autoLevelBtn" type="button">Авто-рівень — покласти сцену на карту</button>
+          <p class="hint">Сам вирівняє нахили X/Y по площині землі й підбере висоту. Найкраще працює після ввімкнення обрізки (щоб сфера «неба» не заважала).</p>
           <label class="field">Поворот X <output id="rxVal"></output>
             <span class="with-btn">
-              <input id="rxRange" type="range" min="-180" max="180" step="1">
+              <input id="rxRange" type="range" min="-180" max="180" step="0.5">
               <button id="rxPlus" type="button">+90°</button>
             </span>
           </label>
           <label class="field">Поворот Y <output id="ryVal"></output>
             <span class="with-btn">
-              <input id="ryRange" type="range" min="-180" max="180" step="1">
+              <input id="ryRange" type="range" min="-180" max="180" step="0.5">
               <button id="ryPlus" type="button">+90°</button>
             </span>
           </label>
           <label class="field">Поворот Z <output id="rzVal"></output>
             <span class="with-btn">
-              <input id="rzRange" type="range" min="-180" max="180" step="1">
+              <input id="rzRange" type="range" min="-180" max="180" step="0.5">
               <button id="rzPlus" type="button">+90°</button>
             </span>
           </label>
@@ -96,6 +95,7 @@
               <input id="cropChk" type="checkbox"> Обрізка (еліпс + висоти)
             </label>
             <div id="cropBody" hidden>
+              <p class="hint">Межі можна тягнути прямо на карті за круглі ручки ↔ і ↕ на краю еліпса. Небо зрізай повзунком «Висота до», туман під землею — «Висота від».</p>
               <label class="field">Радіус схід–захід <output id="cropRxVal"></output>
                 <input id="cropRx" type="range" min="5" max="500" step="5">
               </label>
@@ -117,6 +117,9 @@
         </div>
       </div>
     </div>
+
+    <h2>Локації</h2>
+    <div id="sceneList" class="scene-list"></div>
 
   </div>
 </section>

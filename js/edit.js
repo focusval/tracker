@@ -3,7 +3,7 @@
 
 import { map, layer, renderSceneList, updateStats, loadScene } from "./app.js";
 import { parsePlyFile, parseSplatFile, writeSplat } from "./formats.js";
-import { centerCloud, filterCrop } from "./gsmath.js";
+import { centerCloud, filterCrop, estimateLevel } from "./gsmath.js";
 import { GitHubClient, HARD_LIMIT, probeGitHub } from "./github.js";
 import { state, rt, serializeScenes, sceneParams, detectRepo } from "./state.js";
 import { $, toast, toastError, showProgress, hideProgress, fmtInt, fmtMB, fmtPct, downloadText } from "./ui.js";
@@ -68,6 +68,9 @@ export function selectScene(id){
   const sc = state.scenes.find((s) => s.id === id);
   if (!sc) return;
   state.selectedId = id;
+  // кеш байтів тримаємо лише для вибраної сцени (пам'ять телефона)
+  for (const [rid, r] of state.runtime)
+    if (rid !== id && !r.needsCommit) r.bytesCache = null;
   $("#calib").hidden = false;
   $("#calibTitle").textContent = sc.name;
   $("#nameInput").value = sc.name;
@@ -76,6 +79,9 @@ export function selectScene(id){
   placeMarker(sc);
   updateEllipse(sc);
   renderSceneList();
+  // розкрити шторку і показати панель — інакше на телефоні її не видно
+  $("#sheet").classList.add("open");
+  setTimeout(() => $("#calib").scrollIntoView({ behavior: "smooth", block: "start" }), 250);
 }
 
 function deselect(){
@@ -204,6 +210,10 @@ function wireCalib(){
     const sc = selected();
     if (sc) bakeScene(sc).catch((e) => { toastError(e); hideProgress(); });
   });
+  $("#autoLevelBtn").addEventListener("click", () => {
+    const sc = selected();
+    if (sc) autoLevelScene(sc).catch((e) => { toastError(e); hideProgress(); });
+  });
   $("#deleteBtn").addEventListener("click", () => {
     const sc = selected();
     if (sc) deleteScene(sc).catch((e) => { toastError(e); hideProgress(); });
@@ -211,28 +221,92 @@ function wireCalib(){
   $("#closeCalib").addEventListener("click", deselect);
 }
 
-// ── контур еліпса обрізки на карті ──
+// ── контур еліпса обрізки на карті + перетягувані ручки ──
+
+function metersToLngLat(sc, e, n){
+  const D = Math.PI / 180;
+  return [sc.lng + e / (111320 * Math.cos(sc.lat * D)), sc.lat + n / 110540];
+}
+
+function lngLatToMeters(sc, ll){
+  const D = Math.PI / 180;
+  return {
+    e: (ll.lng - sc.lng) * 111320 * Math.cos(sc.lat * D),
+    n: (ll.lat - sc.lat) * 110540,
+  };
+}
 
 function ellipseGeoJSON(sc){
-  const D = Math.PI / 180;
-  const mPerLng = 111320 * Math.cos(sc.lat * D);
-  const mPerLat = 110540;
   const pts = [];
   for (let i = 0; i <= 64; i++){
     const a = (i / 64) * 2 * Math.PI;
-    const e = sc.crop.rx * Math.cos(a), n = sc.crop.ry * Math.sin(a);
-    pts.push([sc.lng + e / mPerLng, sc.lat + n / mPerLat]);
+    pts.push(metersToLngLat(sc, sc.crop.rx * Math.cos(a), sc.crop.ry * Math.sin(a)));
   }
   return { type: "FeatureCollection", features: [
-    { type: "Feature", geometry: { type: "LineString", coordinates: pts }, properties: {} },
+    { type: "Feature", geometry: { type: "Polygon", coordinates: [pts] }, properties: {} },
   ] };
+}
+
+const clampR = (v) => Math.max(5, Math.min(500, Math.round(v)));
+let handleE = null, handleN = null; // ручки зміни радіусів прямо на карті
+
+function makeHandle(label){
+  const el = document.createElement("div");
+  el.className = "crop-handle";
+  el.textContent = label;
+  return new maplibregl.Marker({ element: el, draggable: true });
+}
+
+function syncHandles(sc){
+  const show = sc && sc.crop.on && state.editing;
+  if (!show){
+    if (handleE){ handleE.remove(); handleE = null; }
+    if (handleN){ handleN.remove(); handleN = null; }
+    return;
+  }
+  if (!handleE){
+    handleE = makeHandle("↔").setLngLat(metersToLngLat(sc, sc.crop.rx, 0)).addTo(map);
+    handleE.on("drag", () => {
+      const s = selected(); if (!s) return;
+      s.crop.rx = clampR(Math.abs(lngLatToMeters(s, handleE.getLngLat()).e));
+      cropChangedLive(s);
+    });
+    handleE.on("dragend", () => { const s = selected(); if (s) syncHandlePositions(s); });
+  }
+  if (!handleN){
+    handleN = makeHandle("↕").setLngLat(metersToLngLat(sc, 0, sc.crop.ry)).addTo(map);
+    handleN.on("drag", () => {
+      const s = selected(); if (!s) return;
+      s.crop.ry = clampR(Math.abs(lngLatToMeters(s, handleN.getLngLat()).n));
+      cropChangedLive(s);
+    });
+    handleN.on("dragend", () => { const s = selected(); if (s) syncHandlePositions(s); });
+  }
+  syncHandlePositions(sc);
+}
+
+function syncHandlePositions(sc){
+  if (handleE) handleE.setLngLat(metersToLngLat(sc, sc.crop.rx, 0));
+  if (handleN) handleN.setLngLat(metersToLngLat(sc, 0, sc.crop.ry));
+}
+
+// живе оновлення під час перетягування ручки: рендер, контур, слайдери
+function cropChangedLive(sc){
+  layer.setCrop(sc.id, sc.crop);
+  const src = map.getSource("crop-ellipse");
+  if (src) src.setData(ellipseGeoJSON(sc));
+  $("#cropRx").value = sc.crop.rx; $("#cropRxVal").textContent = sc.crop.rx + " м";
+  $("#cropRy").value = sc.crop.ry; $("#cropRyVal").textContent = sc.crop.ry + " м";
+  markDirty();
 }
 
 function updateEllipse(sc){
   const src = map.getSource("crop-ellipse");
-  if (!src) return;
-  if (sc && sc.crop.on) src.setData(ellipseGeoJSON(sc));
-  else src.setData({ type: "FeatureCollection", features: [] });
+  if (src){
+    if (sc && sc.crop.on) src.setData(ellipseGeoJSON(sc));
+    else src.setData({ type: "FeatureCollection", features: [] });
+  }
+  syncHandles(sc && sc.crop.on ? sc : null);
 }
 
 function clearEllipse(){ updateEllipse(null); }
@@ -264,7 +338,7 @@ async function handleFile(file){
     };
     state.scenes.push(sc);
     const r = rt(id);
-    r.loaded = true; r.committed = false; r.pendingBytes = bytes;
+    r.loaded = true; r.needsCommit = true; r.bytesCache = bytes;
     layer.addScene(id, data, sceneParams(sc), true, sc.crop); // рендер одразу, не чекаючи коміту
     markDirty(); renderSceneList(); updateStats(); selectScene(id);
     hideProgress();
@@ -277,12 +351,12 @@ async function handleFile(file){
 
 async function commitSceneFile(sc){
   const r = rt(sc.id);
-  if (!r.pendingBytes) return;
+  if (!r.needsCommit || !r.bytesCache) return;
   try {
     showProgress("Комічу " + sc.file + " · 0%", 0);
-    await state.client.putFile(sc.file, r.pendingBytes, "Додано сцену «" + sc.name + "»",
+    await state.client.putFile(sc.file, r.bytesCache, "Додано сцену «" + sc.name + "»",
       (f) => showProgress("Комічу " + sc.file + " · " + fmtPct(f), f));
-    r.pendingBytes = null; r.committed = true;
+    r.needsCommit = false; // байти лишаємо в кеші для авто-рівня/запікання
     toast("Файл сцени закомічено. Вирівняй її і натисни «Зберегти в архів».", "ok", 8000);
   } catch (err) {
     toastError(err);
@@ -292,13 +366,46 @@ async function commitSceneFile(sc){
   }
 }
 
+// Байти сцени: з кешу або з репозиторію через API (працює й до редеплою Pages).
+async function sceneBytes(sc, label){
+  const r = rt(sc.id);
+  if (r.bytesCache) return r.bytesCache;
+  showProgress(label + " · 0%", 0);
+  const bytes = await state.client.getRawFile(sc.file,
+    (f) => showProgress(label + " · " + fmtPct(f), f));
+  r.bytesCache = bytes;
+  return bytes;
+}
+
+// Авто-рівень: кладе сцену «на землю» — вирівнює нахили X/Y по домінантній
+// площині і ставить землю на рівень карти. Якщо ввімкнена обрізка, аналізує
+// лише сплати всередині неї (сфера «неба» Luma не збиває оцінку).
+async function autoLevelScene(sc){
+  if (!state.client && !rt(sc.id).bytesCache){ showTokenForm(); return; }
+  const bytes = await sceneBytes(sc, "Завантажую сцену для аналізу");
+  showProgress("Шукаю площину землі…");
+  const data = parseSplatFile(bytes);
+  const est = estimateLevel(data.pos, data.count, sc, sc.crop.on ? sc.crop : null);
+  hideProgress();
+  if (!est){
+    toast("Замало сплатів для аналізу (можливо, обрізка відсікає майже все).", "error");
+    return;
+  }
+  sc.rx = Math.round(est.rx * 2) / 2;
+  sc.ry = Math.round(est.ry * 2) / 2;
+  sc.alt = Math.round(est.alt * 2) / 2;
+  refreshCalib(sc);
+  applyParams(sc);
+  toast("Вирівняно по землі: нахили X/Y і висоту підібрано. Тепер підганяй масштаб і позицію по будинках. Якщо сцена «догори дриґом» — крутни X на +90° двічі й повтори авто-рівень.", "ok", 10000);
+}
+
 // ── збереження, експорт ──
 
 async function saveArchive(){
   if (!state.client){ showTokenForm(); return; }
   for (const sc of state.scenes)
-    if (rt(sc.id).pendingBytes) await commitSceneFile(sc);
-  const pending = state.scenes.filter((sc) => rt(sc.id).pendingBytes);
+    if (rt(sc.id).needsCommit) await commitSceneFile(sc);
+  const pending = state.scenes.filter((sc) => rt(sc.id).needsCommit);
   if (pending.length){
     toast("Не всі файли сцен вдалося закомітити — scenes.json не оновлюю, щоб не втратити дані.", "error", 9000);
     return;
@@ -324,12 +431,7 @@ async function bakeScene(sc){
     sc.file.replace(/\.splat$/, ".orig.splat") + ".")) return;
 
   const r = rt(sc.id);
-  let origBytes = r.pendingBytes;
-  if (!origBytes){
-    showProgress("Завантажую оригінал сцени · 0%", 0);
-    origBytes = await state.client.getRawFile(sc.file,
-      (f) => showProgress("Завантажую оригінал сцени · " + fmtPct(f), f));
-  }
+  const origBytes = await sceneBytes(sc, "Завантажую оригінал сцени");
   showProgress("Фільтрую сплати…");
   const data = parseSplatFile(origBytes); // без центрування — позиції вже центровані
   const keep = filterCrop(data.pos, data.count, sc, sc.crop);
@@ -362,7 +464,7 @@ async function bakeScene(sc){
   sc.v = (sc.v || 0) + 1;
   sc.crop.on = false;
   sc.crop.baked = true;
-  r.pendingBytes = null; r.committed = true;
+  r.bytesCache = newBytes; r.needsCommit = false;
   const newData = parseSplatFile(newBytes);
   layer.addScene(sc.id, newData, sceneParams(sc), sc.visible, sc.crop);
   refreshCalib(sc);
