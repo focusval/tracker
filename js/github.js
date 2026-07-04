@@ -37,6 +37,17 @@ export function toBase64(bytes){
   return parts.join("");
 }
 
+// Проста перевірка досяжності GitHub без токена і без CORS-preflight —
+// щоб відрізнити «немає мережі до GitHub» від «запит із токеном блокується».
+export async function probeGitHub(){
+  try {
+    const res = await fetch(API + "/zen", { cache: "no-store" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export class GitHubClient {
   constructor({ owner, repo, branch, token }){
     this.owner = owner; this.repo = repo;
@@ -45,10 +56,11 @@ export class GitHubClient {
   }
 
   _headers(){
+    // мінімум заголовків: кожен додатковий ускладнює CORS-preflight,
+    // який на мобільних мережах/блокувальниках і так найвразливіше місце
     return {
       "Authorization": "Bearer " + this.token,
       "Accept": "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
     };
   }
 
@@ -60,7 +72,8 @@ export class GitHubClient {
         headers: { ...this._headers(), ...(body ? {"Content-Type": "application/json"} : {}) },
         body: body ? JSON.stringify(body) : undefined,
       });
-    } catch {
+    } catch (err) {
+      console.error("GitHub fetch не пішов:", err);
       throw new GitHubError(0);
     }
     if (!res.ok){
@@ -72,12 +85,18 @@ export class GitHubClient {
     return res.json();
   }
 
-  _repoPath(p){ return `/repos/${this.owner}/${this.repo}/${p}`; }
+  _repoPath(p){
+    const base = `/repos/${this.owner}/${this.repo}`;
+    return p ? base + "/" + p : base;
+  }
 
+  // Перевірка токена одним запитом до самого репозиторію: fine-grained токен
+  // може не мати прав на /user, тому туди не ходимо.
   async checkAccess(){
-    const me = await this._json("GET", "/user");
-    await this._json("GET", this._repoPath(""));
-    return me.login;
+    const repo = await this._json("GET", this._repoPath(""));
+    if (!repo.permissions || !repo.permissions.push)
+      throw new Error("Токен бачить репозиторій, але не має права запису. Перевір, що в токена Contents: Read and write саме для " + this.owner + "/" + this.repo + ".");
+    return repo.full_name;
   }
 
   // sha файлу в гілці або null, якщо файлу нема.

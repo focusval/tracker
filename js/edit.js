@@ -4,7 +4,7 @@
 import { map, layer, renderSceneList, updateStats, loadScene } from "./app.js";
 import { parsePlyFile, parseSplatFile, writeSplat } from "./formats.js";
 import { centerCloud, filterCrop } from "./gsmath.js";
-import { GitHubClient, HARD_LIMIT } from "./github.js";
+import { GitHubClient, HARD_LIMIT, probeGitHub } from "./github.js";
 import { state, rt, serializeScenes, sceneParams, detectRepo } from "./state.js";
 import { $, toast, toastError, showProgress, hideProgress, fmtInt, fmtMB, fmtPct, downloadText } from "./ui.js";
 
@@ -413,17 +413,30 @@ function wireOnce(){
     e.preventDefault();
     const token = $("#tokenInput").value.trim();
     if (!token) return;
+    if (!/^[\x21-\x7e]+$/.test(token)){
+      toast("У токені є недопустимий символ (можливо, скопіювався не весь, з пробілом чи «…» усередині). Скопіюй токен із GitHub ще раз повністю.", "error", 9000);
+      return;
+    }
     initClient(token);
     try {
       showProgress("Перевіряю токен…");
-      const login = await state.client.checkAccess();
+      const repoName = await state.client.checkAccess();
       localStorage.setItem(LS_TOKEN, token);
       $("#tokenInput").value = "";
       showTools();
-      toast("Токен прийнято (@" + login + "). Можна додавати скани.", "ok");
+      toast("Токен прийнято (" + repoName + "). Можна додавати скани.", "ok");
     } catch (err) {
       state.client = null;
-      toastError(err);
+      if (err && err.status === 0){
+        showProgress("З'ясовую причину…");
+        const alive = await probeGitHub();
+        toast(alive
+          ? "GitHub доступний, але запит із токеном не пройшов. Найчастіше це блокувальник контенту в Safari (Налаштування → Safari → Розширення) або VPN — вимкни їх для цього сайту і спробуй ще раз."
+          : "GitHub недоступний із цієї мережі. Перемкни Wi-Fi ↔ мобільний інтернет, вимкни VPN чи приватний ретранслятор і спробуй ще раз.",
+          "error", 12000);
+      } else {
+        toastError(err);
+      }
     } finally {
       hideProgress();
     }
