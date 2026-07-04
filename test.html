@@ -88,7 +88,7 @@ const map = new maplibregl.Map({
   center: CENTER, zoom: 16, pitch: 60,
 });
 
-log("MapLibre " + maplibregl.version);
+log("MapLibre " + (typeof maplibregl.getVersion === "function" ? maplibregl.getVersion() : maplibregl.version));
 const gl2 = document.createElement("canvas").getContext("webgl2");
 log(gl2 ? "WebGL2 підтримується" : "WebGL2 НЕ підтримується", !gl2);
 
