@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#10151a">
+<title>Сєвєро·3D — тест рендерера</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; background: #10151a; }
+  #map { position: absolute; inset: 0; }
+  #status {
+    position: absolute; top: env(safe-area-inset-top, 0); left: 0; right: 0;
+    z-index: 10; padding: 10px 14px;
+    background: rgba(16,21,26,.9); color: #dde5ec;
+    font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    white-space: pre-wrap;
+  }
+  #status .err { color: #d4574b; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="status">Старт…</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+<script type="module">
+import { SplatLayer } from "./js/renderer.js";
+import { covFrom } from "./js/gsmath.js";
+
+const statusEl = document.getElementById("status");
+const lines = [];
+function log(msg, isErr){
+  lines.push(isErr ? `✗ ${msg}` : `✓ ${msg}`);
+  statusEl.innerHTML = lines.map((l) =>
+    l.startsWith("✗") ? `<span class="err">${l}</span>` : l).join("\n");
+}
+window.addEventListener("error", (e) => log("Помилка: " + e.message, true));
+window.addEventListener("unhandledrejection", (e) => log("Помилка: " + (e.reason && e.reason.message || e.reason), true));
+
+// Синтетична сцена: куб 80×80×80 м із ~6000 сплатів, кожна грань свого кольору.
+function makeCube(){
+  const perFace = 1000, n = perFace * 6;
+  const d = {
+    count: n,
+    pos: new Float32Array(n * 3), cov: new Float32Array(n * 6),
+    col: new Uint8Array(n * 4), scl: new Float32Array(n * 3), rot: new Float32Array(n * 4),
+  };
+  const H = 40; // піврозмір, м
+  const faceCol = [
+    [229,161,60], [90,160,220], [110,190,110],
+    [220,90,90], [200,200,210], [170,120,200],
+  ];
+  const s = 1.6; // радіус сплата, м
+  for (let f = 0; f < 6; f++){
+    for (let i = 0; i < perFace; i++){
+      const k = f * perFace + i;
+      const a = (Math.random() * 2 - 1) * H, b = (Math.random() * 2 - 1) * H;
+      const axis = f >> 1, sign = (f & 1) ? -H : H;
+      const p = axis === 0 ? [sign, a, b] : axis === 1 ? [a, sign, b] : [a, b, sign];
+      d.pos[k*3] = p[0]; d.pos[k*3+1] = p[1]; d.pos[k*3+2] = p[2] + H; // куб стоїть на землі
+      d.scl[k*3] = s; d.scl[k*3+1] = s; d.scl[k*3+2] = s;
+      d.rot[k*4] = 1; // одиничний кватерніон
+      covFrom(s, s, s, 1, 0, 0, 0, d.cov, k*6);
+      const c = faceCol[f];
+      d.col[k*4] = c[0]; d.col[k*4+1] = c[1]; d.col[k*4+2] = c[2]; d.col[k*4+3] = 230;
+    }
+  }
+  return d;
+}
+
+const CENTER = [38.4933, 48.948];
+const map = new maplibregl.Map({
+  container: "map",
+  style: {
+    version: 8,
+    sources: { esri: {
+      type: "raster",
+      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+      tileSize: 256, maxzoom: 19,
+      attribution: "Imagery © Esri, Maxar, Earthstar Geographics",
+    } },
+    layers: [
+      { id: "bg", type: "background", paint: { "background-color": "#10151a" } },
+      { id: "esri", type: "raster", source: "esri" },
+    ],
+  },
+  center: CENTER, zoom: 16, pitch: 60,
+});
+
+log("MapLibre " + maplibregl.version);
+const gl2 = document.createElement("canvas").getContext("webgl2");
+log(gl2 ? "WebGL2 підтримується" : "WebGL2 НЕ підтримується", !gl2);
+
+map.on("load", () => {
+  log("Карта завантажилась");
+  try {
+    const layer = new SplatLayer();
+    layer.onError = (m) => log(m, true);
+    map.addLayer(layer);
+    const cube = makeCube();
+    layer.addScene("cube", cube,
+      { lng: CENTER[0], lat: CENTER[1], alt: 0, rx: 0, ry: 0, rz: 0, scale: 1 },
+      true, null);
+    log("Куб додано: " + cube.count + " сплатів. Покрути карту — куб має стояти на землі, грані різних кольорів, прозорість м'яка по краях.");
+  } catch (err) {
+    log(err.message, true);
+  }
+});
+</script>
+</body>
+</html>

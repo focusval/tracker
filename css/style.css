@@ -1,0 +1,257 @@
+/* Сєвєро·3D — темний графіт, акцент #e5a13c, моноширинні цифри,
+   великі зони дотику, нижня висувна панель, safe-area інсети. */
+
+:root {
+  --bg: #10151a;
+  --bg2: #171e26;
+  --bg3: #1f2833;
+  --line: #2a3542;
+  --fg: #dde5ec;
+  --muted: #8494a5;
+  --accent: #e5a13c;
+  --danger: #d4574b;
+  --ok: #6fbf73;
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.45 -apple-system, "Helvetica Neue", Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  touch-action: manipulation;
+}
+
+#map { position: absolute; inset: 0; }
+
+button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-height: 46px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+button:active { filter: brightness(1.2); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #10151a; font-weight: 600; }
+button.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+
+input[type="text"], input[type="password"] {
+  width: 100%;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-height: 46px;
+  padding: 10px 12px;
+}
+
+/* ── верхня панель ── */
+
+.topbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  padding: calc(8px + var(--sat)) 12px 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(rgba(16,21,26,.92), rgba(16,21,26,.75) 70%, transparent);
+  pointer-events: none;
+  z-index: 10;
+}
+.topbar > * { pointer-events: auto; }
+.brand { font-weight: 700; letter-spacing: .04em; }
+.stats {
+  flex: 1;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+#editBtn { min-height: 40px; padding: 6px 14px; }
+body.editing #editBtn { border-color: var(--accent); color: var(--accent); }
+
+/* ── прогрес і тости ── */
+
+.progress {
+  position: absolute;
+  top: calc(56px + var(--sat));
+  left: 12px; right: 12px;
+  z-index: 11;
+  background: rgba(23,30,38,.95);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.progress .bar {
+  height: 4px;
+  margin-top: 6px;
+  background: var(--bg3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress .bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width .2s;
+}
+.progress .bar i.pulse { animation: pulse 1.2s infinite; }
+@keyframes pulse { 0%,100% { opacity: .4; } 50% { opacity: 1; } }
+
+.toast {
+  position: absolute;
+  top: calc(100px + var(--sat));
+  left: 12px; right: 12px;
+  z-index: 12;
+  background: rgba(23,30,38,.97);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--muted);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+.toast.error { border-left-color: var(--danger); }
+.toast.ok { border-left-color: var(--ok); }
+.toast.info { border-left-color: var(--accent); }
+
+/* ── нижня висувна панель ── */
+
+.sheet {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  z-index: 20;
+  background: var(--bg2);
+  border-top: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  transform: translateY(calc(100% - 92px - var(--sab)));
+  transition: transform .25s ease;
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+}
+.sheet.open { transform: translateY(0); }
+.grip {
+  min-height: 34px;
+  border: 0;
+  background: transparent;
+  border-radius: 16px 16px 0 0;
+  flex: none;
+}
+.grip i {
+  display: block;
+  width: 44px; height: 5px;
+  margin: 0 auto;
+  border-radius: 3px;
+  background: var(--line);
+}
+.sheet-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 14px calc(20px + var(--sab));
+}
+.sheet h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 8px 0 10px; }
+.sheet h3 { font-size: 16px; }
+.empty { color: var(--muted); padding: 6px 0 12px; }
+.hint { color: var(--muted); font-size: 13px; margin: 8px 0; }
+
+/* список сцен */
+.scene-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.scene-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  width: 100%;
+}
+.scene-row.off { opacity: .5; }
+.scene-row.sel { border-color: var(--accent); }
+.scene-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-meta {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  flex: none;
+}
+
+/* ── режим редагування ── */
+
+.edit-panel { display: none; border-top: 1px solid var(--line); padding-top: 12px; }
+body.editing .edit-panel { display: block; }
+
+#tokenForm { display: flex; flex-direction: column; gap: 10px; padding-bottom: 10px; }
+
+.tool-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.tool-row button { flex: 1; }
+#saveBtn { position: relative; }
+#saveBtn .dot {
+  display: none;
+  position: absolute;
+  top: 8px; right: 10px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+#saveBtn.dirty .dot { display: block; }
+
+#calib { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
+.calib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+
+.field { display: block; margin: 12px 0; font-size: 14px; color: var(--muted); }
+.field output {
+  float: right;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.field input[type="range"] { width: 100%; margin-top: 8px; }
+.with-btn { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.with-btn input[type="range"] { flex: 1; margin-top: 0; }
+.with-btn button { flex: none; min-height: 40px; padding: 6px 10px; }
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 30px;
+  background: transparent;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg3);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 0;
+  margin-top: -11px;
+}
+
+.check { display: flex; align-items: center; gap: 10px; margin: 12px 0; font-size: 14px; min-height: 44px; }
+.check input { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+
+.crop-block { border: 1px solid var(--line); border-radius: 12px; padding: 4px 12px 10px; margin: 12px 0; }
+#bakeBtn { width: 100%; margin-top: 6px; }
+#deleteBtn { width: 100%; margin-top: 10px; }
+
+/* MapLibre-дрібниці під темну тему */
+.maplibregl-ctrl-attrib { background: rgba(16,21,26,.7) !important; }
+.maplibregl-ctrl-attrib a { color: var(--muted) !important; }
