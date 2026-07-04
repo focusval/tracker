@@ -1,0 +1,9 @@
+{
+  "name": "severo-3d",
+  "private": true,
+  "type": "module",
+  "description": "Сєвєро·3D — архів Gaussian Splats Сєвєродонецька на супутниковій карті",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}

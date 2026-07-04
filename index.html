@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#10151a">
+<title>Сєвєро·3D — архів міста</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="map"></div>
+
+<header class="topbar">
+  <div class="brand">Сєвєро·3D</div>
+  <div id="statLine" class="stats">0 сплатів</div>
+  <button id="editBtn" type="button">Редагувати</button>
+</header>
+
+<div id="progress" class="progress" hidden>
+  <span id="progressText"></span>
+  <div class="bar"><i id="progressBar"></i></div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<section id="sheet" class="sheet">
+  <button id="sheetGrip" class="grip" type="button" aria-label="Розгорнути панель"><i></i></button>
+  <div class="sheet-body">
+
+    <h2>Локації</h2>
+    <div id="sceneList" class="scene-list"></div>
+
+    <div id="editPanel" class="edit-panel">
+      <form id="tokenForm" hidden>
+        <h2>Режим редагування</h2>
+        <p class="hint">Введи fine-grained token GitHub із правом Contents: Read and write для цього репозиторію (як створити — див. README). Токен зберігається лише у цьому браузері.</p>
+        <input id="tokenInput" type="password" inputmode="text" autocomplete="off"
+               placeholder="github_pat_…" aria-label="Токен GitHub">
+        <button type="submit" class="primary">Увійти</button>
+      </form>
+
+      <div id="editTools" hidden>
+        <div class="tool-row">
+          <button id="addBtn" type="button" class="primary">＋ Додати скан</button>
+          <button id="saveBtn" type="button">Зберегти в архів<span class="dot"></span></button>
+        </div>
+        <div class="tool-row">
+          <button id="exportBtn" type="button">Експорт JSON</button>
+          <button id="forgetBtn" type="button" class="ghost">Забути токен</button>
+        </div>
+        <p class="hint">Додавай .ply (uncompressed із SuperSplat) або .splat. Файл конвертується у .splat і комітиться у scenes/. Понад 95 МБ GitHub не прийме.</p>
+
+        <div id="calib" hidden>
+          <div class="calib-head">
+            <h3 id="calibTitle"></h3>
+            <button id="closeCalib" type="button" class="ghost">Згорнути</button>
+          </div>
+          <label class="field">Назва
+            <input id="nameInput" type="text" autocomplete="off">
+          </label>
+          <p class="hint">Позиція — перетягни жовтий маркер на карті.</p>
+
+          <label class="field">Висота <output id="altVal"></output>
+            <input id="altRange" type="range" min="-80" max="200" step="0.5">
+          </label>
+          <label class="field">Масштаб <output id="scaleVal"></output>
+            <input id="scaleRange" type="range" min="0" max="1000" step="1">
+          </label>
+          <label class="field">Поворот X <output id="rxVal"></output>
+            <span class="with-btn">
+              <input id="rxRange" type="range" min="-180" max="180" step="1">
+              <button id="rxPlus" type="button">+90°</button>
+            </span>
+          </label>
+          <label class="field">Поворот Y <output id="ryVal"></output>
+            <span class="with-btn">
+              <input id="ryRange" type="range" min="-180" max="180" step="1">
+              <button id="ryPlus" type="button">+90°</button>
+            </span>
+          </label>
+          <label class="field">Поворот Z <output id="rzVal"></output>
+            <span class="with-btn">
+              <input id="rzRange" type="range" min="-180" max="180" step="1">
+              <button id="rzPlus" type="button">+90°</button>
+            </span>
+          </label>
+
+          <label class="check">
+            <input id="visChk" type="checkbox"> Сцена видима (схована не вантажиться з мережі)
+          </label>
+
+          <div class="crop-block">
+            <label class="check">
+              <input id="cropChk" type="checkbox"> Обрізка (еліпс + висоти)
+            </label>
+            <div id="cropBody" hidden>
+              <label class="field">Радіус схід–захід <output id="cropRxVal"></output>
+                <input id="cropRx" type="range" min="5" max="500" step="5">
+              </label>
+              <label class="field">Радіус північ–південь <output id="cropRyVal"></output>
+                <input id="cropRy" type="range" min="5" max="500" step="5">
+              </label>
+              <label class="field">Висота від <output id="cropHminVal"></output>
+                <input id="cropHmin" type="range" min="-50" max="200" step="1">
+              </label>
+              <label class="field">Висота до <output id="cropHmaxVal"></output>
+                <input id="cropHmax" type="range" min="-50" max="200" step="1">
+              </label>
+              <button id="bakeBtn" type="button" class="primary">Запекти обрізку назавжди</button>
+              <p class="hint">Оригінал збережеться поруч як *.orig.splat.</p>
+            </div>
+          </div>
+
+          <button id="deleteBtn" type="button" class="danger">Видалити сцену…</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<input type="file" id="fileInput" accept=".ply,.splat" hidden>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
