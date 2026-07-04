@@ -146,7 +146,8 @@ body.editing #editBtn { border-color: var(--accent); color: var(--accent); }
 }
 .sheet.open { transform: translateY(0); }
 .grip {
-  min-height: 34px;
+  min-height: 44px;
+  touch-action: none;
   border: 0;
   background: transparent;
   border-radius: 16px 16px 0 0;
@@ -192,8 +193,25 @@ body.editing #editBtn { border-color: var(--accent); color: var(--accent); }
 
 /* ── режим редагування ── */
 
-.edit-panel { display: none; border-top: 1px solid var(--line); padding-top: 12px; }
+.edit-panel { display: none; border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 12px; }
 body.editing .edit-panel { display: block; }
+
+/* ручки зміни радіусів обрізки прямо на карті */
+.crop-handle {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: rgba(16, 21, 26, .75);
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  font-size: 16px;
+  line-height: 30px;
+  text-align: center;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, .5);
+  cursor: grab;
+  touch-action: none;
+}
+
+#autoLevelBtn { width: 100%; margin-top: 4px; }
 
 #tokenForm { display: flex; flex-direction: column; gap: 10px; padding-bottom: 10px; }
 

@@ -41,6 +41,12 @@ map.on("load", () => {
   // контур еліпса обрізки (оновлюється в режимі редагування)
   map.addSource("crop-ellipse", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   map.addLayer({
+    id: "crop-ellipse-fill",
+    type: "fill",
+    source: "crop-ellipse",
+    paint: { "fill-color": "#e5a13c", "fill-opacity": 0.08 },
+  });
+  map.addLayer({
     id: "crop-ellipse-line",
     type: "line",
     source: "crop-ellipse",
@@ -94,9 +100,19 @@ export async function loadScene(sc, label){
   const tag = label || `«${sc.name}»`;
   try {
     showProgress(`${tag} · 0%`, 0);
-    const buf = await fetchWithProgress(sc.file + "?v=" + (sc.v || 0), (f) => {
-      showProgress(`${tag} · ${fmtPct(f)}`, f);
-    });
+    let buf;
+    try {
+      buf = await fetchWithProgress(sc.file + "?v=" + (sc.v || 0), (f) => {
+        showProgress(`${tag} · ${fmtPct(f)}`, f);
+      });
+    } catch (err) {
+      // Pages міг ще не редеплоїтись після коміту — в режимі редагування
+      // забираємо файл прямо з репозиторію через API
+      if (!state.client) throw err;
+      buf = await state.client.getRawFile(sc.file, (f) => {
+        showProgress(`${tag} (з репозиторію) · ${fmtPct(f)}`, f);
+      });
+    }
     const data = parseSplatFile(buf); // без центрування: файл у репо вже центрований
     sc.count = data.count;
     layer.addScene(sc.id, data, sceneParams(sc), sc.visible, sc.crop);
@@ -152,9 +168,19 @@ export function renderSceneList(){
 
 // ── нижня панель і кнопка редагування ──
 
-$("#sheetGrip").addEventListener("click", () => {
-  $("#sheet").classList.toggle("open");
-});
+// шторка: тап по смужці перемикає, свайп угору/вниз — відкриває/закриває
+{
+  const grip = $("#sheetGrip");
+  let y0 = null;
+  grip.addEventListener("pointerdown", (e) => { y0 = e.clientY; });
+  grip.addEventListener("pointerup", (e) => {
+    const dy = y0 == null ? 0 : e.clientY - y0;
+    y0 = null;
+    if (dy < -25) $("#sheet").classList.add("open");
+    else if (dy > 25) $("#sheet").classList.remove("open");
+    else $("#sheet").classList.toggle("open");
+  });
+}
 
 $("#editBtn").addEventListener("click", async () => {
   try {
