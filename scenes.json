@@ -1,5 +1,32 @@
 {
   "version": 1,
-  "updated": "2026-07-05T13:05:00.000Z",
-  "scenes": []
+  "updated": "2026-07-05T13:40:06.299Z",
+  "scenes": [
+    {
+      "id": "smr7u8ix7",
+      "name": "gs_Mmmm",
+      "file": "scenes/smr7u8ix7.splat",
+      "lng": 38.496651193981734,
+      "lat": 48.94198171491831,
+      "alt": 0,
+      "rx": 0,
+      "ry": 0,
+      "rz": 0,
+      "scale": 14.531974248157695,
+      "visible": true,
+      "count": 1190878,
+      "size": 38108096,
+      "v": 0,
+      "crop": {
+        "on": false,
+        "shape": "ellipse",
+        "rot": 0,
+        "rx": 100,
+        "ry": 100,
+        "hmin": -50,
+        "hmax": 200,
+        "baked": false
+      }
+    }
+  ]
 }
