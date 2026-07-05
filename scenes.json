@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-05T16:32:20.428Z",
+  "updated": "2026-07-05T16:37:34.863Z",
   "scenes": [
     {
       "id": "smr7u8ix7",
@@ -32,25 +32,25 @@
       "id": "smr80e7j3",
       "name": "gs_Secero1",
       "file": "scenes/smr80e7j3.splat",
-      "lng": 38.50201584248589,
-      "lat": 48.935654077259215,
-      "alt": 0,
-      "rx": 0,
-      "ry": 0,
-      "rz": 0,
-      "scale": 1,
+      "lng": 38.51699849702118,
+      "lat": 48.9319689108231,
+      "alt": -16.88958598328506,
+      "rx": -86.5,
+      "ry": -1.5,
+      "rz": -24.1990310062248,
+      "scale": 162.07052257523117,
       "visible": true,
       "count": 1082838,
       "size": 34650816,
       "v": 0,
       "crop": {
-        "on": false,
-        "shape": "ellipse",
-        "rot": 0,
-        "rx": 100,
-        "ry": 100,
+        "on": true,
+        "shape": "rect",
+        "rot": 158,
+        "rx": 500,
+        "ry": 500,
         "hmin": -50,
-        "hmax": 200,
+        "hmax": 13,
         "baked": false
       }
     }
