@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-05T17:29:56.748Z",
+  "updated": "2026-07-05T17:31:06.838Z",
   "scenes": [
     {
       "id": "smr7u8ix7",
@@ -205,6 +205,32 @@
         "rot": -17,
         "rx": 500,
         "ry": 500,
+        "hmin": -50,
+        "hmax": 200,
+        "baked": false
+      }
+    },
+    {
+      "id": "smr82hs1u",
+      "name": "gs_Severodo_4",
+      "file": "scenes/smr82hs1u.splat",
+      "lng": 38.54000011900234,
+      "lat": 48.940792322384766,
+      "alt": 9.5,
+      "rx": -89.5,
+      "ry": -2,
+      "rz": 0,
+      "scale": 27.663543677941348,
+      "visible": true,
+      "count": 1104219,
+      "size": 35335008,
+      "v": 0,
+      "crop": {
+        "on": false,
+        "shape": "ellipse",
+        "rot": 0,
+        "rx": 100,
+        "ry": 100,
         "hmin": -50,
         "hmax": 200,
         "baked": false
