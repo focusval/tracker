@@ -5,11 +5,22 @@ import { map, layer, renderSceneList, updateStats, loadScene } from "./app.js";
 import { parsePlyFile, parseSplatFile, writeSplat } from "./formats.js";
 import { centerCloud, filterCrop, estimateLevel } from "./gsmath.js";
 import { GitHubClient, HARD_LIMIT, probeGitHub } from "./github.js";
+import { makeZip } from "./zip.js";
 import { state, rt, serializeScenes, sceneParams, detectRepo } from "./state.js";
-import { $, toast, toastError, showProgress, hideProgress, fmtInt, fmtMB, fmtPct, downloadText } from "./ui.js";
+import { $, toast, toastError, showProgress, hideProgress, fetchWithProgress, fmtInt, fmtMB, fmtPct, downloadText } from "./ui.js";
 
 const LS_TOKEN = "severo3d.token";
 let marker = null;
+
+// Стан редагування, що не зберігається у scenes.json: маска стертих гумкою
+// сплатів і стек «крок назад». Тримаємо лише для вибраної сцени.
+const edits = new Map(); // id -> { mask: Uint8Array|null, history: [], eraseMode: bool }
+function editRec(id){
+  let e = edits.get(id);
+  if (!e){ e = { mask: null, history: [], eraseMode: false }; edits.set(id, e); }
+  return e;
+}
+const HISTORY_MAX = 40;
 
 // ── вхід/вихід ──
 
@@ -22,6 +33,7 @@ function enterEdit(){
   document.body.classList.add("editing");
   $("#editBtn").textContent = "Готово";
   $("#sheet").classList.add("open");
+  layer.onErase = onEraseResult;
   const token = localStorage.getItem(LS_TOKEN);
   if (token){ initClient(token); showTools(); }
   else showTokenForm();
@@ -67,6 +79,11 @@ function updateDirtyDot(){
 export function selectScene(id){
   const sc = state.scenes.find((s) => s.id === id);
   if (!sc) return;
+  // якщо була увімкнена гумка на попередній сцені — вимкнути
+  if (state.selectedId && state.selectedId !== id){
+    const prev = state.scenes.find((s) => s.id === state.selectedId);
+    if (prev){ editRec(prev.id).eraseMode = false; applyEraseMode(prev); }
+  }
   state.selectedId = id;
   // кеш байтів тримаємо лише для вибраної сцени (пам'ять телефона)
   for (const [rid, r] of state.runtime)
@@ -78,6 +95,10 @@ export function selectScene(id){
   refreshCalib(sc);
   placeMarker(sc);
   updateEllipse(sc);
+  const e = editRec(id);
+  applyEraseMode(sc);
+  $("#eraseCount").textContent = e.mask ? ("стерто " + fmtInt(e.mask.reduce((a, b) => a + b, 0)) + " сплатів") : "";
+  updateUndoBtn(sc);
   renderSceneList();
   // розкрити шторку і показати панель — інакше на телефоні її не видно
   $("#sheet").classList.add("open");
@@ -85,6 +106,8 @@ export function selectScene(id){
 }
 
 function deselect(){
+  const sc = selected();
+  if (sc){ editRec(sc.id).eraseMode = false; applyEraseMode(sc); }
   state.selectedId = null;
   $("#calib").hidden = true;
   if (marker){ marker.remove(); marker = null; }
@@ -117,9 +140,60 @@ function applyParams(sc){
   updateEllipse(sc);
 }
 
-// шкала масштабу — логарифмічна: 0..1000 → 0.05×..20×
-const scaleFromT = (t) => 0.05 * Math.pow(400, t / 1000);
-const tFromScale = (s) => Math.round(1000 * Math.log(s / 0.05) / Math.log(400));
+// ── «крок назад»: знімки стану сцени (параметри + обрізка + маска гумки) ──
+
+function snapshot(sc){
+  const e = editRec(sc.id);
+  return {
+    lng: sc.lng, lat: sc.lat, alt: sc.alt,
+    rx: sc.rx, ry: sc.ry, rz: sc.rz, scale: sc.scale,
+    crop: { ...sc.crop },
+    mask: e.mask ? e.mask.slice() : null,
+  };
+}
+
+// Фіксуємо стан ПЕРЕД зміною. reason — для дедуплікації дрібних рухів слайдера.
+let lastPushReason = null, lastPushAt = 0;
+function pushHistory(sc, reason){
+  const now = Date.now();
+  // серію швидких змін одного контролу (слайдер) згортаємо в один крок
+  if (reason && reason === lastPushReason && now - lastPushAt < 700){ lastPushAt = now; return; }
+  lastPushReason = reason; lastPushAt = now;
+  const e = editRec(sc.id);
+  e.history.push(snapshot(sc));
+  if (e.history.length > HISTORY_MAX) e.history.shift();
+  updateUndoBtn(sc);
+}
+
+function updateUndoBtn(sc){
+  const e = sc ? editRec(sc.id) : null;
+  const btn = $("#undoBtn");
+  if (btn) btn.disabled = !e || e.history.length === 0;
+}
+
+function undo(){
+  const sc = selected(); if (!sc) return;
+  const e = editRec(sc.id);
+  const snap = e.history.pop();
+  if (!snap){ toast("Немає що скасовувати.", "info"); return; }
+  sc.lng = snap.lng; sc.lat = snap.lat; sc.alt = snap.alt;
+  sc.rx = snap.rx; sc.ry = snap.ry; sc.rz = snap.rz; sc.scale = snap.scale;
+  Object.assign(sc.crop, snap.crop);
+  e.mask = snap.mask ? snap.mask.slice() : null;
+  layer.setEraseMask(sc.id, e.mask);
+  layer.setParams(sc.id, sceneParams(sc));
+  layer.setCrop(sc.id, sc.crop);
+  if (marker) marker.setLngLat([sc.lng, sc.lat]);
+  refreshCalib(sc);
+  updateEllipse(sc);
+  updateUndoBtn(sc);
+  markDirty();
+}
+
+// шкала масштабу — логарифмічна: 0..1000 → 0.05×..300×
+const SCALE_MIN = 0.05, SCALE_MAX = 300, SCALE_SPAN = SCALE_MAX / SCALE_MIN;
+const scaleFromT = (t) => SCALE_MIN * Math.pow(SCALE_SPAN, t / 1000);
+const tFromScale = (s) => Math.round(1000 * Math.log(Math.max(SCALE_MIN, Math.min(SCALE_MAX, s)) / SCALE_MIN) / Math.log(SCALE_SPAN));
 const wrap180 = (v) => ((v + 180) % 360 + 360) % 360 - 180;
 
 const ranges = [
@@ -145,6 +219,7 @@ function refreshCalib(sc){
   $("#scaleVal").textContent = "×" + sc.scale.toFixed(2);
   $("#cropChk").checked = sc.crop.on;
   $("#cropBody").hidden = !sc.crop.on;
+  refreshShapeButtons(sc);
   for (const c of cropRanges){
     $(c.r).value = sc.crop[c.k];
     $(c.l).textContent = c.fmt(sc.crop[c.k]);
@@ -155,6 +230,7 @@ function wireCalib(){
   for (const c of ranges){
     $(c.r).addEventListener("input", () => {
       const sc = selected(); if (!sc) return;
+      pushHistory(sc, c.r);
       c.set(sc, +$(c.r).value);
       $(c.l).textContent = c.fmt(c.get(sc));
       applyParams(sc);
@@ -162,6 +238,7 @@ function wireCalib(){
   }
   $("#scaleRange").addEventListener("input", () => {
     const sc = selected(); if (!sc) return;
+    pushHistory(sc, "scale");
     sc.scale = scaleFromT(+$("#scaleRange").value);
     $("#scaleVal").textContent = "×" + sc.scale.toFixed(2);
     applyParams(sc);
@@ -169,6 +246,7 @@ function wireCalib(){
   for (const axis of ["rx", "ry", "rz"]){
     $("#" + axis + "Plus").addEventListener("click", () => {
       const sc = selected(); if (!sc) return;
+      pushHistory(sc, null);
       sc[axis] = wrap180(sc[axis] + 90);
       $("#" + axis + "Range").value = sc[axis];
       $("#" + axis + "Val").textContent = sc[axis] + "°";
@@ -190,14 +268,26 @@ function wireCalib(){
   });
   $("#cropChk").addEventListener("change", () => {
     const sc = selected(); if (!sc) return;
+    pushHistory(sc, null);
     sc.crop.on = $("#cropChk").checked;
     $("#cropBody").hidden = !sc.crop.on;
     layer.setCrop(sc.id, sc.crop);
     markDirty(); updateEllipse(sc);
   });
+  for (const btn of document.querySelectorAll(".shape-btn")){
+    btn.addEventListener("click", () => {
+      const sc = selected(); if (!sc) return;
+      pushHistory(sc, null);
+      sc.crop.shape = btn.dataset.shape;
+      refreshShapeButtons(sc);
+      layer.setCrop(sc.id, sc.crop);
+      markDirty(); updateEllipse(sc);
+    });
+  }
   for (const c of cropRanges){
     $(c.r).addEventListener("input", () => {
       const sc = selected(); if (!sc) return;
+      pushHistory(sc, c.r);
       sc.crop[c.k] = +$(c.r).value;
       if (c.k === "hmin" && sc.crop.hmin > sc.crop.hmax){ sc.crop.hmax = sc.crop.hmin; refreshCalib(sc); }
       if (c.k === "hmax" && sc.crop.hmax < sc.crop.hmin){ sc.crop.hmin = sc.crop.hmax; refreshCalib(sc); }
@@ -206,6 +296,11 @@ function wireCalib(){
       markDirty(); updateEllipse(sc);
     });
   }
+  $("#eraseBtn").addEventListener("click", () => {
+    const sc = selected(); if (!sc) return;
+    toggleErase(sc);
+  });
+  $("#undoBtn").addEventListener("click", undo);
   $("#bakeBtn").addEventListener("click", () => {
     const sc = selected();
     if (sc) bakeScene(sc).catch((e) => { toastError(e); hideProgress(); });
@@ -219,6 +314,14 @@ function wireCalib(){
     if (sc) deleteScene(sc).catch((e) => { toastError(e); hideProgress(); });
   });
   $("#closeCalib").addEventListener("click", deselect);
+  wireEraser();
+}
+
+function refreshShapeButtons(sc){
+  for (const btn of document.querySelectorAll(".shape-btn"))
+    btn.classList.toggle("active", btn.dataset.shape === sc.crop.shape);
+  $("#cropRxLabel").textContent = sc.crop.shape === "rect" ? "Півширина (схід–захід)" : "Радіус схід–захід";
+  $("#cropRyLabel").textContent = sc.crop.shape === "rect" ? "Півдовжина (північ–південь)" : "Радіус північ–південь";
 }
 
 // ── контур еліпса обрізки на карті + перетягувані ручки ──
@@ -236,15 +339,51 @@ function lngLatToMeters(sc, ll){
   };
 }
 
-function ellipseGeoJSON(sc){
-  const pts = [];
-  for (let i = 0; i <= 64; i++){
-    const a = (i / 64) * 2 * Math.PI;
-    pts.push(metersToLngLat(sc, sc.crop.rx * Math.cos(a), sc.crop.ry * Math.sin(a)));
+// Контур обрізки (полігон) + внутрішня сітка для орієнтації.
+function cropGeoJSON(sc){
+  const rx = sc.crop.rx, ry = sc.crop.ry;
+  const outline = [];
+  if (sc.crop.shape === "rect"){
+    outline.push(metersToLngLat(sc, -rx, -ry), metersToLngLat(sc, rx, -ry),
+      metersToLngLat(sc, rx, ry), metersToLngLat(sc, -rx, ry), metersToLngLat(sc, -rx, -ry));
+  } else {
+    for (let i = 0; i <= 64; i++){
+      const a = (i / 64) * 2 * Math.PI;
+      outline.push(metersToLngLat(sc, rx * Math.cos(a), ry * Math.sin(a)));
+    }
   }
-  return { type: "FeatureCollection", features: [
-    { type: "Feature", geometry: { type: "Polygon", coordinates: [pts] }, properties: {} },
-  ] };
+  const features = [
+    { type: "Feature", geometry: { type: "Polygon", coordinates: [outline] }, properties: { role: "fill" } },
+  ];
+  // сітка: лінії кожні ~1/4 розміру, обрізані по формі
+  const grid = [];
+  const nx = 4, ny = 4;
+  const inShape = (e, n) => sc.crop.shape === "rect"
+    ? (Math.abs(e) <= rx + 1e-6 && Math.abs(n) <= ry + 1e-6)
+    : ((e/rx)*(e/rx) + (n/ry)*(n/ry) <= 1.0001);
+  for (let i = 1; i < nx; i++){
+    const e = -rx + (2 * rx) * i / nx;
+    const seg = [];
+    for (let j = 0; j <= 40; j++){
+      const n = -ry + (2 * ry) * j / 40;
+      if (inShape(e, n)) seg.push(metersToLngLat(sc, e, n));
+      else if (seg.length){ grid.push(seg.slice()); seg.length = 0; }
+    }
+    if (seg.length > 1) grid.push(seg);
+  }
+  for (let i = 1; i < ny; i++){
+    const n = -ry + (2 * ry) * i / ny;
+    const seg = [];
+    for (let j = 0; j <= 40; j++){
+      const e = -rx + (2 * rx) * j / 40;
+      if (inShape(e, n)) seg.push(metersToLngLat(sc, e, n));
+      else if (seg.length){ grid.push(seg.slice()); seg.length = 0; }
+    }
+    if (seg.length > 1) grid.push(seg);
+  }
+  if (grid.length)
+    features.push({ type: "Feature", geometry: { type: "MultiLineString", coordinates: grid }, properties: { role: "grid" } });
+  return { type: "FeatureCollection", features };
 }
 
 const clampR = (v) => Math.max(5, Math.min(500, Math.round(v)));
@@ -294,7 +433,7 @@ function syncHandlePositions(sc){
 function cropChangedLive(sc){
   layer.setCrop(sc.id, sc.crop);
   const src = map.getSource("crop-ellipse");
-  if (src) src.setData(ellipseGeoJSON(sc));
+  if (src) src.setData(cropGeoJSON(sc));
   $("#cropRx").value = sc.crop.rx; $("#cropRxVal").textContent = sc.crop.rx + " м";
   $("#cropRy").value = sc.crop.ry; $("#cropRyVal").textContent = sc.crop.ry + " м";
   markDirty();
@@ -303,13 +442,148 @@ function cropChangedLive(sc){
 function updateEllipse(sc){
   const src = map.getSource("crop-ellipse");
   if (src){
-    if (sc && sc.crop.on) src.setData(ellipseGeoJSON(sc));
+    if (sc && sc.crop.on) src.setData(cropGeoJSON(sc));
     else src.setData({ type: "FeatureCollection", features: [] });
   }
   syncHandles(sc && sc.crop.on ? sc : null);
 }
 
 function clearEllipse(){ updateEllipse(null); }
+
+// ── гумка: стирання деталей пальцем/мишкою ──
+
+let eraseActive = false;      // йде мазок зараз
+let erasePoints = [];         // точки поточного мазка в CSS-пікселях канви
+let eraseFlushTimer = null;
+
+function toggleErase(sc){
+  const e = editRec(sc.id);
+  e.eraseMode = !e.eraseMode;
+  applyEraseMode(sc);
+}
+
+function applyEraseMode(sc){
+  const e = editRec(sc.id);
+  const btn = $("#eraseBtn");
+  btn.classList.toggle("active", e.eraseMode);
+  btn.textContent = e.eraseMode ? "Гумка: увімкнено (малюй по сцені)" : "Гумка — стерти деталі";
+  document.body.classList.toggle("erasing", e.eraseMode);
+  const canvas = map.getCanvas();
+  canvas.style.cursor = e.eraseMode ? "crosshair" : "";
+  // під час стирання блокуємо перетягування карти, щоб мазок не рухав вид
+  if (e.eraseMode){ map.dragPan.disable(); map.dragRotate.disable(); }
+  else { map.dragPan.enable(); map.dragRotate.enable(); }
+}
+
+function eraseRadiusCss(){
+  return +($("#eraseSize") ? $("#eraseSize").value : 24) || 24;
+}
+
+function wireEraser(){
+  const canvas = map.getCanvas();
+  const toCss = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+  };
+  canvas.addEventListener("pointerdown", (ev) => {
+    const sc = selected(); if (!sc) return;
+    if (!editRec(sc.id).eraseMode) return;
+    ev.preventDefault();
+    pushHistory(sc, null); // цілий мазок — один крок «назад»
+    eraseActive = true;
+    erasePoints = [toCss(ev)];
+    canvas.setPointerCapture(ev.pointerId);
+    scheduleEraseFlush(sc);
+  });
+  canvas.addEventListener("pointermove", (ev) => {
+    if (!eraseActive) return;
+    erasePoints.push(toCss(ev));
+    scheduleEraseFlush(selected());
+  });
+  const finish = () => { eraseActive = false; erasePoints = []; };
+  canvas.addEventListener("pointerup", finish);
+  canvas.addEventListener("pointercancel", finish);
+}
+
+// накопичені точки шлемо у рендерер пачками (не частіше ~40 мс)
+function scheduleEraseFlush(sc){
+  if (!sc || eraseFlushTimer) return;
+  eraseFlushTimer = setTimeout(() => {
+    eraseFlushTimer = null;
+    if (!erasePoints.length) return;
+    const batch = erasePoints;
+    erasePoints = eraseActive ? [batch[batch.length - 1]] : [];
+    layer.eraseStroke(sc.id, batch, eraseRadiusCss());
+  }, 40);
+}
+
+// колбек рендерера після обробки мазка: оновлюємо маску і лічильник
+function onEraseResult(id, mask, hit, total){
+  const e = editRec(id);
+  e.mask = mask;
+  const sc = state.scenes.find((s) => s.id === id);
+  if (sc){
+    $("#eraseCount").textContent = total ? ("стерто " + fmtInt(total) + " сплатів") : "";
+    markDirty();
+    updateUndoBtn(sc);
+  }
+}
+
+// ── експорт усього сайту-карти одним ZIP ──
+
+const SITE_FILES = [
+  "index.html", "css/style.css",
+  "js/app.js", "js/edit.js", "js/renderer.js", "js/sorter.worker.js",
+  "js/gsmath.js", "js/formats.js", "js/github.js", "js/state.js",
+  "js/ui.js", "js/zip.js", "test.html", "README.md",
+];
+
+async function exportMapZip(){
+  try {
+    showProgress("Збираю сайт-карту в архів…");
+    const files = [];
+    // 1) статичні файли сайту (беремо з поточного розгортання Pages)
+    for (const path of SITE_FILES){
+      try {
+        const buf = await fetchWithProgress(path + "?z=" + Date.now());
+        files.push({ name: path, data: new Uint8Array(buf) });
+      } catch { /* необов'язковий файл (напр. test.html) міг бути відсутній */ }
+    }
+    // 2) актуальний конфіг сцен
+    files.push({ name: "scenes.json", data: new TextEncoder().encode(serializeScenes(state.scenes)) });
+    // 3) файли сплатів усіх сцен
+    let i = 0;
+    for (const sc of state.scenes){
+      i++;
+      const r = rt(sc.id);
+      let bytes;
+      if (r.bytesCache){
+        bytes = r.bytesCache;
+      } else {
+        showProgress(`Сцена ${i} з ${state.scenes.length}: ${sc.name} · 0%`, 0);
+        try {
+          bytes = await fetchWithProgress(sc.file + "?v=" + (sc.v || 0),
+            (f) => showProgress(`Сцена ${i} з ${state.scenes.length}: ${sc.name} · ${fmtPct(f)}`, f));
+        } catch {
+          if (!state.client) throw new Error("Щоб вивантажити сцену «" + sc.name + "», відкрий режим редагування з токеном.");
+          bytes = await state.client.getRawFile(sc.file);
+        }
+      }
+      files.push({ name: sc.file, data: new Uint8Array(bytes instanceof Uint8Array ? bytes.buffer : bytes) });
+    }
+    showProgress("Пакую ZIP…");
+    const blob = makeZip(files);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "severo-3d-map-" + new Date().toISOString().slice(0, 10) + ".zip";
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 4000);
+    toast("Архів карти готовий: " + fmtMB(blob.size) + ". Усередині — повний сайт і всі сплати. Розпакуй і відкрий index.html (карта потребує інтернету для супутникових тайлів).", "ok", 12000);
+  } finally {
+    hideProgress();
+  }
+}
 
 // ── додавання сканів ──
 
@@ -334,7 +608,7 @@ async function handleFile(file){
       id, name: file.name.replace(/\.(ply|splat)$/i, ""), file: "scenes/" + id + ".splat",
       lng: c.lng, lat: c.lat, alt: 0, rx: 0, ry: 0, rz: 0, scale: 1,
       visible: true, count: data.count, size: bytes.byteLength, v: 0,
-      crop: { on: false, rx: 100, ry: 100, hmin: -50, hmax: 200, baked: false },
+      crop: { on: false, shape: "ellipse", rx: 100, ry: 100, hmin: -50, hmax: 200, baked: false },
     };
     state.scenes.push(sc);
     const r = rt(id);
@@ -422,23 +696,27 @@ async function saveArchive(){
   }
 }
 
-// ── запікання обрізки ──
+// ── запікання: обрізка + стертий гумкою назавжди ──
 
 async function bakeScene(sc){
   if (!state.client){ showTokenForm(); return; }
-  if (!sc.crop.on){ toast("Спочатку увімкни і налаштуй обрізку.", "info"); return; }
-  if (!confirm("Запекти обрізку назавжди? Оригінал буде збережено поруч як " +
+  const e = editRec(sc.id);
+  const hasCrop = sc.crop.on;
+  const hasErase = e.mask && e.mask.some((v) => v);
+  if (!hasCrop && !hasErase){ toast("Немає що запікати — увімкни обрізку або зітри щось гумкою.", "info"); return; }
+  const what = hasCrop && hasErase ? "обрізку і стирання" : hasCrop ? "обрізку" : "стирання";
+  if (!confirm("Запекти " + what + " назавжди? Оригінал буде збережено поруч як " +
     sc.file.replace(/\.splat$/, ".orig.splat") + ".")) return;
 
   const r = rt(sc.id);
   const origBytes = await sceneBytes(sc, "Завантажую оригінал сцени");
   showProgress("Фільтрую сплати…");
   const data = parseSplatFile(origBytes); // без центрування — позиції вже центровані
-  const keep = filterCrop(data.pos, data.count, sc, sc.crop);
-  if (!keep.length) throw new Error("Обрізка відсікає всі сплати — розшир еліпс або діапазон висот.");
+  const keep = filterCrop(data.pos, data.count, sc, sc.crop, e.mask, hasCrop);
+  if (!keep.length) throw new Error("Фільтр відсікає всі сплати — послаб обрізку або скасуй стирання.");
   if (keep.length === data.count){
     hideProgress();
-    toast("Обрізка нічого не відсікає — запікати нема чого.", "info");
+    toast("Нічого не відсікається — запікати нема чого.", "info");
     return;
   }
   const newBytes = writeSplat(data, keep);
@@ -454,21 +732,26 @@ async function bakeScene(sc){
       (f) => showProgress("Зберігаю оригінал · " + fmtPct(f), f));
   }
   // 2) обрізаний файл замість старого
-  showProgress("Комічу обрізану сцену · 0%", 0);
-  await state.client.putFile(sc.file, newBytes, "Запечено обрізку сцени «" + sc.name + "»",
-    (f) => showProgress("Комічу обрізану сцену · " + fmtPct(f), f));
+  showProgress("Комічу оброблену сцену · 0%", 0);
+  await state.client.putFile(sc.file, newBytes, "Запечено " + what + " сцени «" + sc.name + "»",
+    (f) => showProgress("Комічу оброблену сцену · " + fmtPct(f), f));
 
-  // 3) оновлюємо сцену і рендер
+  // 3) оновлюємо сцену і рендер (маска і історія скидаються — вони вже у файлі)
   sc.count = keep.length;
   sc.size = newBytes.byteLength;
   sc.v = (sc.v || 0) + 1;
   sc.crop.on = false;
   sc.crop.baked = true;
+  e.mask = null; e.history = [];
+  e.eraseMode = false;
   r.bytesCache = newBytes; r.needsCommit = false;
   const newData = parseSplatFile(newBytes);
   layer.addScene(sc.id, newData, sceneParams(sc), sc.visible, sc.crop);
   refreshCalib(sc);
+  applyEraseMode(sc);
   clearEllipse();
+  $("#eraseCount").textContent = "";
+  updateUndoBtn(sc);
   renderSceneList(); updateStats();
 
   // 4) фіксуємо конфігурацію
@@ -564,6 +847,8 @@ function wireOnce(){
     saveArchive().catch((e) => { toastError(e); hideProgress(); }));
   $("#exportBtn").addEventListener("click", () =>
     downloadText("scenes.json", serializeScenes(state.scenes)));
+  $("#exportMapBtn").addEventListener("click", () =>
+    exportMapZip().catch((e) => { toastError(e); hideProgress(); }));
   $("#forgetBtn").addEventListener("click", () => {
     localStorage.removeItem(LS_TOKEN);
     state.client = null;

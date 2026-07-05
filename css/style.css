@@ -213,6 +213,20 @@ body.editing .edit-panel { display: block; }
 
 #autoLevelBtn { width: 100%; margin-top: 4px; }
 
+/* вибір форми обрізки */
+.shape-row { display: flex; gap: 8px; margin: 8px 0; }
+.shape-btn { flex: 1; }
+.shape-btn.active { background: var(--accent); border-color: var(--accent); color: #10151a; font-weight: 600; }
+
+/* гумка */
+#eraseBtn { width: 100%; }
+#eraseBtn.active { background: var(--accent); border-color: var(--accent); color: #10151a; font-weight: 600; }
+.erase-count { color: var(--accent); font-variant-numeric: tabular-nums; }
+body.erasing .maplibregl-canvas { cursor: crosshair; }
+
+.calib-head-btns { display: flex; gap: 6px; }
+#undoBtn:disabled { opacity: .4; }
+
 #tokenForm { display: flex; flex-direction: column; gap: 10px; padding-bottom: 10px; }
 
 .tool-row { display: flex; gap: 8px; margin-bottom: 8px; }
@@ -273,3 +287,28 @@ input[type="range"]::-webkit-slider-thumb {
 /* MapLibre-дрібниці під темну тему */
 .maplibregl-ctrl-attrib { background: rgba(16,21,26,.7) !important; }
 .maplibregl-ctrl-attrib a { color: var(--muted) !important; }
+
+/* ── десктоп: панель праворуч замість нижньої шторки ── */
+@media (min-width: 820px) and (pointer: fine) {
+  .sheet {
+    left: auto;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 400px;
+    max-height: none;
+    height: 100%;
+    border-radius: 0;
+    border-left: 1px solid var(--line);
+    border-top: 0;
+    transform: none;
+    padding-top: calc(56px + var(--sat));
+  }
+  .sheet .grip { display: none; }
+  .sheet-body { padding: 0 18px 24px; }
+  .topbar { right: 400px; }
+  .progress { right: calc(400px + 12px); }
+  .toast { right: calc(400px + 12px); left: auto; width: 360px; }
+  /* маркер і ручки на десктопі трохи менші й точніші */
+  .crop-handle { cursor: grab; }
+}

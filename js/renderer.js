@@ -14,6 +14,7 @@ uniform vec2 uViewport; // drawingBufferWidth/Height
 uniform mat3 uEnu;      // локальна позиція -> метри схід/північ/вгору (scale*R)
 uniform vec4 uCrop;     // rx, ry, hmin, hmax
 uniform bool uCropOn;
+uniform bool uCropRect; // false = еліпс, true = прямокутник
 layout(location=0) in vec2 aCorner;  // квад (-2,-2),(2,-2),(-2,2),(2,2)
 layout(location=1) in uint aIndex;   // інстансний атрибут: відсортований індекс
 out vec4 vColor; out vec2 vPos;
@@ -23,8 +24,14 @@ void main() {
   vec3 p = uintBitsToFloat(t0.xyz);
   if (uCropOn) {
     vec3 m = uEnu * p;
-    vec2 q = m.xy / uCrop.xy;
-    if (dot(q, q) > 1.0 || m.z < uCrop.z || m.z > uCrop.w) {
+    bool outside;
+    if (uCropRect) {
+      outside = abs(m.x) > uCrop.x || abs(m.y) > uCrop.y;
+    } else {
+      vec2 q = m.xy / uCrop.xy;
+      outside = dot(q, q) > 1.0;
+    }
+    if (outside || m.z < uCrop.z || m.z > uCrop.w) {
       gl_Position = vec4(0.,0.,2.,1.); return;
     }
   }
@@ -75,8 +82,13 @@ export class SplatLayer {
     this.gl = null;
     this.program = null;
     this.onError = null; // (українське повідомлення) -> void
+    this.onErase = null; // (id, maskArrayBuffer, hit, total) -> void — після мазка гумки
+    this.lastMatrix = null; // остання проєкційна матриця карти (для гумки)
     this.worker = new Worker(new URL("./sorter.worker.js", import.meta.url));
-    this.worker.onmessage = (e) => this._onSorted(e.data);
+    this.worker.onmessage = (e) => {
+      if (e.data.erased) this._onErased(e.data);
+      else this._onSorted(e.data);
+    };
   }
 
   onAdd(map, gl){
@@ -112,6 +124,7 @@ export class SplatLayer {
       enu: gl.getUniformLocation(this.program, "uEnu"),
       crop: gl.getUniformLocation(this.program, "uCrop"),
       cropOn: gl.getUniformLocation(this.program, "uCropOn"),
+      cropRect: gl.getUniformLocation(this.program, "uCropRect"),
     };
     this.quadBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
@@ -137,12 +150,13 @@ export class SplatLayer {
     const sc = {
       id, count: data.count, data,
       params: {...params},
-      crop: crop ? {...crop} : {on:false, rx:100, ry:100, hmin:-50, hmax:200},
+      crop: crop ? {...crop} : {on:false, shape:"ellipse", rx:100, ry:100, hmin:-50, hmax:200},
       visible: visible !== false,
       model: new Float64Array(16),
       enu: new Float32Array(9),
       lastRow: [NaN, 0, 0],
       sorting: false,
+      drawCount: data.count,
       texture: null, indexBuf: null, vao: null,
     };
     this.scenes.set(id, sc);
@@ -185,6 +199,42 @@ export class SplatLayer {
     if (!sc) return;
     sc.visible = !!v;
     if (this.map) this.map.triggerRepaint();
+  }
+
+  // Форсує пересортування (після зміни маски стертих сплатів).
+  forceSort(id){
+    const sc = this.scenes.get(id);
+    if (!sc) return;
+    sc.lastRow[0] = NaN;
+    if (this.map) this.map.triggerRepaint();
+  }
+
+  // Мазок гумки: точки в CSS-пікселях канви карти, радіус у CSS-пікселях.
+  // Проєкція і пошук влучань — у воркері, щоб не блокувати інтерфейс.
+  eraseStroke(id, pointsCss, rCss){
+    const sc = this.scenes.get(id);
+    if (!sc || !this.lastMatrix || !this.map) return;
+    const canvas = this.map.getCanvas();
+    const k = canvas.width / (canvas.clientWidth || 1);
+    const mvp = mat4mul(this.lastMatrix, sc.model);
+    this.worker.postMessage({
+      type: "erase", id,
+      mvp: Array.from(mvp),
+      w: canvas.width, h: canvas.height,
+      r: rCss * k,
+      points: pointsCss.map((p) => ({ x: p.x * k, y: p.y * k })),
+    });
+  }
+
+  // Відновлення маски стертих (крок назад). mask — Uint8Array або null.
+  setEraseMask(id, mask){
+    this.worker.postMessage({ type: "setMask", id, mask: mask ? mask.slice().buffer : null });
+    this.forceSort(id);
+  }
+
+  _onErased(msg){
+    this.forceSort(msg.id);
+    if (this.onErase) this.onErase(msg.id, new Uint8Array(msg.mask), msg.hit, msg.total);
   }
 
   _rebuildModel(sc){
@@ -250,6 +300,21 @@ export class SplatLayer {
     if (!gl || !sc.indexBuf) return;
     gl.bindBuffer(gl.ARRAY_BUFFER, sc.indexBuf);
     gl.bufferData(gl.ARRAY_BUFFER, msg.index, gl.DYNAMIC_DRAW);
+    sc.drawCount = msg.index.length;
+    // якщо камера рухалась, поки йшло сортування — одразу запускаємо наступне,
+    // не чекаючи кадру: порядок не відстає від руху
+    if (this.lastMatrix){
+      const mvp = mat4mul(this.lastMatrix, sc.model);
+      const r0 = mvp[3], r1 = mvp[7], r2 = mvp[11];
+      const L = sc.lastRow;
+      const diff = Math.abs(r0-L[0]) + Math.abs(r1-L[1]) + Math.abs(r2-L[2]);
+      const sum = Math.abs(r0) + Math.abs(r1) + Math.abs(r2);
+      if (!(diff/sum <= 3e-4)){
+        sc.sorting = true;
+        L[0]=r0; L[1]=r1; L[2]=r2;
+        this.worker.postMessage({ type: "sort", id: sc.id, row: [r0, r1, r2] });
+      }
+    }
     if (this.map) this.map.triggerRepaint();
   }
 
@@ -259,6 +324,7 @@ export class SplatLayer {
     const mat = (matrix && matrix.defaultProjectionData)
       ? matrix.defaultProjectionData.mainMatrix : matrix;
     if (!mat) return;
+    this.lastMatrix = mat;
     // зберегти стан GL
     const pBlend = gl.isEnabled(gl.BLEND);
     const pDepth = gl.isEnabled(gl.DEPTH_TEST);
@@ -287,7 +353,9 @@ export class SplatLayer {
       const L = sc.lastRow;
       const diff = Math.abs(r0-L[0]) + Math.abs(r1-L[1]) + Math.abs(r2-L[2]);
       const sum = Math.abs(r0) + Math.abs(r1) + Math.abs(r2);
-      if (!(diff/sum <= 1e-3) && !sc.sorting){ // NaN у lastRow також запускає сортування
+      // поріг нижчий за референсний 1e-3: порядок сплатів щільніше тримається
+      // за камерою, сцена не «пливе» при поворотах
+      if (!(diff/sum <= 3e-4) && !sc.sorting){ // NaN у lastRow також запускає сортування
         sc.sorting = true;
         L[0]=r0; L[1]=r1; L[2]=r2;
         this.worker.postMessage({ type: "sort", id: sc.id, row: [r0, r1, r2] });
@@ -297,10 +365,11 @@ export class SplatLayer {
       if (sc.crop.on){
         gl.uniformMatrix3fv(this.u.enu, false, sc.enu);
         gl.uniform4f(this.u.crop, sc.crop.rx, sc.crop.ry, sc.crop.hmin, sc.crop.hmax);
+        gl.uniform1i(this.u.cropRect, sc.crop.shape === "rect" ? 1 : 0);
       }
       gl.bindTexture(gl.TEXTURE_2D, sc.texture);
       gl.bindVertexArray(sc.vao);
-      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, sc.count);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, sc.drawCount);
     }
     gl.bindVertexArray(null);
 

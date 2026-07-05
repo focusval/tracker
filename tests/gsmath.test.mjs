@@ -163,6 +163,39 @@ test("filterCrop: поворот rz=90 обертає схід у північ",
   assert.deepEqual(filterCrop(pos, 2, params, crop), [0]);
 });
 
+test("cropKeeps: прямокутник — межі по осях незалежні", () => {
+  const crop = { shape: "rect", rx: 25, ry: 50, hmin: -10, hmax: 10 };
+  assert.equal(cropKeeps(crop, 25, 50, 0), true);   // рівно в куті — всередині
+  assert.equal(cropKeeps(crop, 26, 0, 0), false);
+  assert.equal(cropKeeps(crop, 0, 51, 0), false);
+  assert.equal(cropKeeps(crop, 20, 40, 0), true);   // кут, що еліпс би відсік
+  assert.equal(cropKeeps(crop, -25, -50, 5), true);
+  assert.equal(cropKeeps(crop, 0, 0, 11), false);   // висота
+});
+
+test("filterCrop: прямокутник лишає кути, яких еліпс не лишає", () => {
+  const pos = new Float32Array([20,40,0, 24,49,0, 30,0,0]);
+  const params = { rx: 0, ry: 0, rz: 0, scale: 1 };
+  const ell = { shape: "ellipse", rx: 25, ry: 50, hmin: -10, hmax: 10 };
+  const rect = { shape: "rect", rx: 25, ry: 50, hmin: -10, hmax: 10 };
+  // (20,40): еліпс (0.8²+0.8²=1.28>1) відсікає, прямокутник лишає
+  assert.deepEqual(filterCrop(pos, 3, params, ell), []);       // (30,0) поза rx теж
+  assert.deepEqual(filterCrop(pos, 3, params, rect), [0, 1]);  // обидва кути, крім (30,0)
+});
+
+test("filterCrop: маска гумки відкидає позначені сплати", () => {
+  const pos = new Float32Array([1,0,0, 2,0,0, 3,0,0, 4,0,0]);
+  const params = { rx: 0, ry: 0, rz: 0, scale: 1 };
+  const crop = { shape: "ellipse", rx: 100, ry: 100, hmin: -10, hmax: 10 };
+  const mask = new Uint8Array([0, 1, 0, 1]);
+  // з обрізкою (всі в межах) + маска: лишаються 0 і 2
+  assert.deepEqual(filterCrop(pos, 4, params, crop, mask), [0, 2]);
+  // лише маска (cropOn=false): те саме, геометрію не застосовуємо
+  assert.deepEqual(filterCrop(pos, 4, params, crop, mask, false), [0, 2]);
+  // без маски й без обрізки — всі
+  assert.deepEqual(filterCrop(pos, 4, params, crop, null, false), [0, 1, 2, 3]);
+});
+
 test("enuMatrix узгоджена з rotationFromEuler і scale", () => {
   const p = { rx: 20, ry: -40, rz: 75, scale: 3.5 };
   const R = rotationFromEuler(p.rx, p.ry, p.rz);

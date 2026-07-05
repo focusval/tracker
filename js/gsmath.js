@@ -87,8 +87,12 @@ export function enuMatrix(params){
 // Той самий тест обрізки, що у вершинному шейдері: еліпс по осях схід/північ
 // (радіуси в метрах) + діапазон висот відносно якоря.
 export function cropKeeps(crop, e, n, u){
-  const qe=e/crop.rx, qn=n/crop.ry;
-  if (qe*qe + qn*qn > 1) return false;
+  if (crop.shape === "rect"){
+    if (Math.abs(e) > crop.rx || Math.abs(n) > crop.ry) return false;
+  } else {
+    const qe=e/crop.rx, qn=n/crop.ry;
+    if (qe*qe + qn*qn > 1) return false;
+  }
   if (u < crop.hmin || u > crop.hmax) return false;
   return true;
 }
@@ -196,15 +200,22 @@ export function estimateLevel(pos, count, params, crop){
 }
 
 // Індекси сплатів, що лишаються після обрізки (для запікання на CPU).
-export function filterCrop(pos, count, params, crop){
-  const M = enuMatrix(params);
+// mask (необов'язковий Uint8Array): 1 = сплат стерто гумкою, його відкидаємо.
+// cropOn — чи застосовувати геометричну обрізку (за false лишається лише маска).
+export function filterCrop(pos, count, params, crop, mask, cropOn){
+  const applyCrop = cropOn !== false;
+  const M = applyCrop ? enuMatrix(params) : null;
   const keep = [];
   for (let i=0;i<count;i++){
-    const x=pos[i*3], y=pos[i*3+1], z=pos[i*3+2];
-    const e=M[0]*x+M[1]*y+M[2]*z;
-    const n=M[3]*x+M[4]*y+M[5]*z;
-    const u=M[6]*x+M[7]*y+M[8]*z;
-    if (cropKeeps(crop, e, n, u)) keep.push(i);
+    if (mask && mask[i]) continue;
+    if (applyCrop){
+      const x=pos[i*3], y=pos[i*3+1], z=pos[i*3+2];
+      const e=M[0]*x+M[1]*y+M[2]*z;
+      const n=M[3]*x+M[4]*y+M[5]*z;
+      const u=M[6]*x+M[7]*y+M[8]*z;
+      if (!cropKeeps(crop, e, n, u)) continue;
+    }
+    keep.push(i);
   }
   return keep;
 }

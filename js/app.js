@@ -44,12 +44,21 @@ map.on("load", () => {
     id: "crop-ellipse-fill",
     type: "fill",
     source: "crop-ellipse",
+    filter: ["==", ["get", "role"], "fill"],
     paint: { "fill-color": "#e5a13c", "fill-opacity": 0.08 },
+  });
+  map.addLayer({
+    id: "crop-grid",
+    type: "line",
+    source: "crop-ellipse",
+    filter: ["==", ["get", "role"], "grid"],
+    paint: { "line-color": "#e5a13c", "line-width": 1, "line-opacity": 0.45 },
   });
   map.addLayer({
     id: "crop-ellipse-line",
     type: "line",
     source: "crop-ellipse",
+    filter: ["==", ["get", "role"], "fill"],
     paint: { "line-color": "#e5a13c", "line-width": 2, "line-dasharray": [2, 2] },
   });
   loadArchive().catch(toastError);
