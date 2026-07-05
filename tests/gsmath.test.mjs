@@ -236,3 +236,44 @@ test("buildTexData: висота текстури росте з кількіст
   assert.equal(height, 2);
   assert.equal(tex.length, 2048 * 2 * 4);
 });
+
+test("cropKeeps: зсув центру (ox,oy) — прямокутник із незалежними сторонами", () => {
+  // центр зсунуто в (100,50); півсторони rx=30, ry=20 → бокс схід [70..130], північ [30..70]
+  const crop = { shape: "rect", rot: 0, rx: 30, ry: 20, ox: 100, oy: 50, hmin: -50, hmax: 50, invert: false };
+  assert.equal(cropKeeps(crop, 100, 50, 0), true);   // центр боксу
+  assert.equal(cropKeeps(crop, 70, 30, 0), true);    // кут
+  assert.equal(cropKeeps(crop, 130, 70, 0), true);   // протилежний кут
+  assert.equal(cropKeeps(crop, 69, 50, 0), false);   // трохи західніше лівого краю
+  assert.equal(cropKeeps(crop, 131, 50, 0), false);  // східніше правого
+  assert.equal(cropKeeps(crop, 100, 29, 0), false);  // південніше нижнього
+  assert.equal(cropKeeps(crop, 0, 0, 0), false);     // якір поза зсунутим боксом
+});
+
+test("cropKeeps: invert — видаляє те, що всередині, лишає зовні", () => {
+  const base = { shape: "rect", rot: 0, rx: 30, ry: 20, ox: 0, oy: 0, hmin: -50, hmax: 50 };
+  const keep = { ...base, invert: false }, del = { ...base, invert: true };
+  // всередині: keep=true, invert=false (видаляється)
+  assert.equal(cropKeeps(keep, 10, 5, 0), true);
+  assert.equal(cropKeeps(del, 10, 5, 0), false);
+  // зовні: keep=false (обрізається), invert=true (лишається)
+  assert.equal(cropKeeps(keep, 100, 100, 0), false);
+  assert.equal(cropKeeps(del, 100, 100, 0), true);
+  // поза діапазоном висот усередині фігури: для invert лишається (бо не в зоні видалення)
+  assert.equal(cropKeeps(del, 10, 5, 999), true);
+});
+
+test("cropKeeps: дефолти ox/oy/invert відсутні → стара поведінка", () => {
+  // об'єкт без нових полів має поводитись як центрована обрізка
+  const crop = { shape: "ellipse", rot: 0, rx: 50, ry: 50, hmin: -10, hmax: 10 };
+  assert.equal(cropKeeps(crop, 0, 0, 0), true);
+  assert.equal(cropKeeps(crop, 60, 0, 0), false);
+  assert.equal(cropKeeps(crop, 0, 0, 20), false);
+});
+
+test("filterCrop: invert видаляє сплати всередині фігури", () => {
+  const params = { lng: 0, lat: 0, alt: 0, rx: 0, ry: 0, rz: 0, scale: 1 };
+  const crop = { shape: "rect", rot: 0, rx: 10, ry: 10, ox: 0, oy: 0, hmin: -50, hmax: 50, invert: true };
+  // (0,0) всередині → видаляється; (100,100) зовні → лишається
+  const pos = new Float32Array([0,0,0,  100,100,0]);
+  assert.deepEqual(filterCrop(pos, 2, params, crop), [1]);
+});

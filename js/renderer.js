@@ -16,6 +16,8 @@ uniform vec4 uCrop;     // rx, ry, hmin, hmax
 uniform bool uCropOn;
 uniform bool uCropRect; // false = еліпс, true = прямокутник
 uniform vec2 uCropRot;  // (cos, sin) кута повороту обрізки
+uniform vec2 uCropOff;  // (ox, oy) зсув центру фігури, метри схід/північ
+uniform bool uCropInvert; // true = видаляти всередині фігури (замість лишати)
 layout(location=0) in vec2 aCorner;  // квад (-2,-2),(2,-2),(-2,2),(2,2)
 layout(location=1) in uint aIndex;   // інстансний атрибут: відсортований індекс
 out vec4 vColor; out vec2 vPos;
@@ -25,9 +27,10 @@ void main() {
   vec3 p = uintBitsToFloat(t0.xyz);
   if (uCropOn) {
     vec3 m = uEnu * p;
-    // поворот площини обрізки на -rot (uCropRot = cos,sin прямого кута)
-    vec2 mr = vec2(uCropRot.x * m.x + uCropRot.y * m.y,
-                  -uCropRot.y * m.x + uCropRot.x * m.y);
+    // зсув центру на (ox,oy), потім поворот площини обрізки на -rot
+    vec2 d = m.xy - uCropOff;
+    vec2 mr = vec2(uCropRot.x * d.x + uCropRot.y * d.y,
+                  -uCropRot.y * d.x + uCropRot.x * d.y);
     bool outside;
     if (uCropRect) {
       outside = abs(mr.x) > uCrop.x || abs(mr.y) > uCrop.y;
@@ -35,7 +38,9 @@ void main() {
       vec2 q = mr / uCrop.xy;
       outside = dot(q, q) > 1.0;
     }
-    if (outside || m.z < uCrop.z || m.z > uCrop.w) {
+    bool inBand = (!outside) && m.z >= uCrop.z && m.z <= uCrop.w;
+    // класична обрізка ховає те, що зовні; invert — навпаки, ховає те, що всередині
+    if (uCropInvert ? inBand : !inBand) {
       gl_Position = vec4(0.,0.,2.,1.); return;
     }
   }
@@ -137,6 +142,8 @@ export class SplatLayer {
       cropOn: gl.getUniformLocation(this.program, "uCropOn"),
       cropRect: gl.getUniformLocation(this.program, "uCropRect"),
       cropRot: gl.getUniformLocation(this.program, "uCropRot"),
+      cropOff: gl.getUniformLocation(this.program, "uCropOff"),
+      cropInvert: gl.getUniformLocation(this.program, "uCropInvert"),
     };
     this.quadBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
@@ -166,7 +173,7 @@ export class SplatLayer {
     const sc = {
       id, count: data.count, data, epoch: this._epoch,
       params: {...params},
-      crop: crop ? {...crop} : {on:false, shape:"ellipse", rot:0, rx:100, ry:100, hmin:-50, hmax:200},
+      crop: crop ? {...crop} : {on:false, shape:"ellipse", rot:0, rx:100, ry:100, ox:0, oy:0, hmin:-50, hmax:200, invert:false},
       visible: visible !== false,
       model: new Float64Array(16),
       enu: new Float32Array(9),
@@ -407,6 +414,8 @@ export class SplatLayer {
         gl.uniform1i(this.u.cropRect, sc.crop.shape === "rect" ? 1 : 0);
         const ra = (sc.crop.rot || 0) * Math.PI / 180;
         gl.uniform2f(this.u.cropRot, Math.cos(ra), Math.sin(ra));
+        gl.uniform2f(this.u.cropOff, sc.crop.ox || 0, sc.crop.oy || 0);
+        gl.uniform1i(this.u.cropInvert, sc.crop.invert ? 1 : 0);
       }
       gl.bindTexture(gl.TEXTURE_2D, sc.texture);
       gl.bindVertexArray(sc.vao);

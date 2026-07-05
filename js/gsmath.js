@@ -85,21 +85,27 @@ export function enuMatrix(params){
 }
 
 // Той самий тест обрізки, що у вершинному шейдері: еліпс АБО прямокутник по
-// осях схід/північ, повернутих на crop.rot градусів, + діапазон висот.
+// осях схід/північ, зсунутих на (ox,oy) і повернутих на crop.rot градусів,
+// + діапазон висот. invert=true інвертує (лишає те, що ЗОВНІ фігури/висоти).
+// Повертає true, якщо сплат ЛИШАЄТЬСЯ. Дефолти ox=oy=0, invert=false дають
+// стару поведінку без змін.
 export function cropKeeps(crop, e, n, u){
-  let ce = e, cn = n;
+  let ce = e - (crop.ox || 0), cn = n - (crop.oy || 0);
   if (crop.rot){
     const a = -crop.rot * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
-    ce = c * e - s * n; cn = s * e + c * n;
+    const re = c * ce - s * cn, rn = s * ce + c * cn;
+    ce = re; cn = rn;
   }
+  let inside;
   if (crop.shape === "rect"){
-    if (Math.abs(ce) > crop.rx || Math.abs(cn) > crop.ry) return false;
+    inside = Math.abs(ce) <= crop.rx && Math.abs(cn) <= crop.ry;
   } else {
     const qe = ce / crop.rx, qn = cn / crop.ry;
-    if (qe*qe + qn*qn > 1) return false;
+    inside = qe*qe + qn*qn <= 1;
   }
-  if (u < crop.hmin || u > crop.hmax) return false;
-  return true;
+  const inBand = inside && u >= crop.hmin && u <= crop.hmax;
+  // класична обрізка лишає те, що всередині+висота; invert — навпаки (видаляє це)
+  return crop.invert ? !inBand : inBand;
 }
 
 // 2D-подібність (Umeyama з рівномірним масштабом): знаходить s, кут φ і зсув t,
