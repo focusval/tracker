@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-05T08:45:02.173Z",
+  "updated": "2026-07-05T08:48:00.246Z",
   "scenes": [
     {
       "id": "smr7iwqn0",
@@ -81,11 +81,11 @@
       }
     },
     {
-      "id": "smr7jp9a1",
+      "id": "smr7jt403",
       "name": "gs_Mmmm",
-      "file": "scenes/smr7jp9a1.splat",
-      "lng": 38.49329999923816,
-      "lat": 48.94800000089526,
+      "file": "scenes/smr7jt403.splat",
+      "lng": 38.49719280093262,
+      "lat": 48.94168647991518,
       "alt": 0,
       "rx": 0,
       "ry": 0,
