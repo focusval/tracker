@@ -15,6 +15,7 @@ uniform mat3 uEnu;      // локальна позиція -> метри схі�
 uniform vec4 uCrop;     // rx, ry, hmin, hmax
 uniform bool uCropOn;
 uniform bool uCropRect; // false = еліпс, true = прямокутник
+uniform vec2 uCropRot;  // (cos, sin) кута повороту обрізки
 layout(location=0) in vec2 aCorner;  // квад (-2,-2),(2,-2),(-2,2),(2,2)
 layout(location=1) in uint aIndex;   // інстансний атрибут: відсортований індекс
 out vec4 vColor; out vec2 vPos;
@@ -24,11 +25,14 @@ void main() {
   vec3 p = uintBitsToFloat(t0.xyz);
   if (uCropOn) {
     vec3 m = uEnu * p;
+    // поворот площини обрізки на -rot (uCropRot = cos,sin прямого кута)
+    vec2 mr = vec2(uCropRot.x * m.x + uCropRot.y * m.y,
+                  -uCropRot.y * m.x + uCropRot.x * m.y);
     bool outside;
     if (uCropRect) {
-      outside = abs(m.x) > uCrop.x || abs(m.y) > uCrop.y;
+      outside = abs(mr.x) > uCrop.x || abs(mr.y) > uCrop.y;
     } else {
-      vec2 q = m.xy / uCrop.xy;
+      vec2 q = mr / uCrop.xy;
       outside = dot(q, q) > 1.0;
     }
     if (outside || m.z < uCrop.z || m.z > uCrop.w) {
@@ -82,11 +86,13 @@ export class SplatLayer {
     this.gl = null;
     this.program = null;
     this.onError = null; // (українське повідомлення) -> void
-    this.onErase = null; // (id, maskArrayBuffer, hit, total) -> void — після мазка гумки
-    this.lastMatrix = null; // остання проєкційна матриця карти (для гумки)
+    this.onErase = null; // (id, mask, hit, total) -> void — після мазка гумки
+    this.onPick = null;  // (id, tag, pos|null) -> void — після вибору точки
+    this.lastMatrix = null; // остання проєкційна матриця карти (для гумки/вибору)
     this.worker = new Worker(new URL("./sorter.worker.js", import.meta.url));
     this.worker.onmessage = (e) => {
       if (e.data.erased) this._onErased(e.data);
+      else if (e.data.picked) this._onPicked(e.data);
       else this._onSorted(e.data);
     };
   }
@@ -125,6 +131,7 @@ export class SplatLayer {
       crop: gl.getUniformLocation(this.program, "uCrop"),
       cropOn: gl.getUniformLocation(this.program, "uCropOn"),
       cropRect: gl.getUniformLocation(this.program, "uCropRect"),
+      cropRot: gl.getUniformLocation(this.program, "uCropRot"),
     };
     this.quadBuf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuf);
@@ -150,7 +157,7 @@ export class SplatLayer {
     const sc = {
       id, count: data.count, data,
       params: {...params},
-      crop: crop ? {...crop} : {on:false, shape:"ellipse", rx:100, ry:100, hmin:-50, hmax:200},
+      crop: crop ? {...crop} : {on:false, shape:"ellipse", rot:0, rx:100, ry:100, hmin:-50, hmax:200},
       visible: visible !== false,
       model: new Float64Array(16),
       enu: new Float32Array(9),
@@ -210,8 +217,8 @@ export class SplatLayer {
   }
 
   // Мазок гумки: точки в CSS-пікселях канви карти, радіус у CSS-пікселях.
-  // Проєкція і пошук влучань — у воркері, щоб не блокувати інтерфейс.
-  eraseStroke(id, pointsCss, rCss){
+  // depthFrac: 0 = лише найближча поверхня (один бік), 1 = наскрізь.
+  eraseStroke(id, pointsCss, rCss, depthFrac){
     const sc = this.scenes.get(id);
     if (!sc || !this.lastMatrix || !this.map) return;
     const canvas = this.map.getCanvas();
@@ -222,8 +229,43 @@ export class SplatLayer {
       mvp: Array.from(mvp),
       w: canvas.width, h: canvas.height,
       r: rCss * k,
+      depthFrac: depthFrac == null ? 0.15 : depthFrac,
       points: pointsCss.map((p) => ({ x: p.x * k, y: p.y * k })),
     });
+  }
+
+  // Вибір найближчого сплата під екранною точкою (CSS-пікселі). Результат —
+  // у колбеку onPick(id, tag, pos). tag дозволяє розрізняти запити.
+  pickSplat(id, xCss, yCss, tag){
+    const sc = this.scenes.get(id);
+    if (!sc || !this.lastMatrix || !this.map) return;
+    const canvas = this.map.getCanvas();
+    const k = canvas.width / (canvas.clientWidth || 1);
+    const mvp = mat4mul(this.lastMatrix, sc.model);
+    this.worker.postMessage({
+      type: "pick", id, tag,
+      mvp: Array.from(mvp),
+      w: canvas.width, h: canvas.height,
+      x: xCss * k, y: yCss * k, r: 26 * k,
+    });
+  }
+
+  // Світлова позиція локальної точки сцени → [lng, lat] на карті (для маркерів
+  // прив'язки). Використовує модельну матрицю сцени й мерка тор MapLibre.
+  localToLngLat(id, p){
+    const sc = this.scenes.get(id);
+    if (!sc) return null;
+    const m = sc.model;
+    const mx = m[0]*p[0] + m[4]*p[1] + m[8]*p[2] + m[12];
+    const my = m[1]*p[0] + m[5]*p[1] + m[9]*p[2] + m[13];
+    const mz = m[2]*p[0] + m[6]*p[1] + m[10]*p[2] + m[14];
+    const mc = new maplibregl.MercatorCoordinate(mx, my, mz);
+    const ll = mc.toLngLat();
+    return [ll.lng, ll.lat];
+  }
+
+  _onPicked(msg){
+    if (this.onPick) this.onPick(msg.id, msg.tag, msg.found ? msg.pos : null);
   }
 
   // Відновлення маски стертих (крок назад). mask — Uint8Array або null.
@@ -366,6 +408,8 @@ export class SplatLayer {
         gl.uniformMatrix3fv(this.u.enu, false, sc.enu);
         gl.uniform4f(this.u.crop, sc.crop.rx, sc.crop.ry, sc.crop.hmin, sc.crop.hmax);
         gl.uniform1i(this.u.cropRect, sc.crop.shape === "rect" ? 1 : 0);
+        const ra = (sc.crop.rot || 0) * Math.PI / 180;
+        gl.uniform2f(this.u.cropRot, Math.cos(ra), Math.sin(ra));
       }
       gl.bindTexture(gl.TEXTURE_2D, sc.texture);
       gl.bindVertexArray(sc.vao);

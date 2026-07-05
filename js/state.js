@@ -41,6 +41,7 @@ export function normalizeScenes(json){
     crop: {
       on: !!(s.crop && s.crop.on),
       shape: (s.crop && s.crop.shape === "rect") ? "rect" : "ellipse",
+      rot: num(s.crop && s.crop.rot, 0),
       rx: num(s.crop && s.crop.rx, 100),
       ry: num(s.crop && s.crop.ry, 100),
       hmin: num(s.crop && s.crop.hmin, -50),
@@ -60,7 +61,7 @@ export function serializeScenes(scenes){
       rx: s.rx, ry: s.ry, rz: s.rz,
       scale: s.scale, visible: s.visible,
       count: s.count, size: s.size, v: s.v,
-      crop: { on: s.crop.on, shape: s.crop.shape, rx: s.crop.rx, ry: s.crop.ry,
+      crop: { on: s.crop.on, shape: s.crop.shape, rot: s.crop.rot, rx: s.crop.rx, ry: s.crop.ry,
               hmin: s.crop.hmin, hmax: s.crop.hmax, baked: s.crop.baked },
     })),
   }, null, 2);

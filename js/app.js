@@ -61,6 +61,14 @@ map.on("load", () => {
     filter: ["==", ["get", "role"], "fill"],
     paint: { "line-color": "#e5a13c", "line-width": 2, "line-dasharray": [2, 2] },
   });
+  // лінії прив'язки по точках (сплат → карта)
+  map.addSource("align-lines", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({
+    id: "align-lines",
+    type: "line",
+    source: "align-lines",
+    paint: { "line-color": "#43c0d0", "line-width": 2, "line-dasharray": [1, 1] },
+  });
   loadArchive().catch(toastError);
 });
 
