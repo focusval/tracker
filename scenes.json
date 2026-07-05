@@ -1,30 +1,30 @@
 {
   "version": 1,
-  "updated": "2026-07-05T13:40:06.299Z",
+  "updated": "2026-07-05T16:31:17.202Z",
   "scenes": [
     {
       "id": "smr7u8ix7",
       "name": "gs_Mmmm",
       "file": "scenes/smr7u8ix7.splat",
-      "lng": 38.496651193981734,
-      "lat": 48.94198171491831,
-      "alt": 0,
-      "rx": 0,
+      "lng": 38.495510866094214,
+      "lat": 48.9411811085895,
+      "alt": 1.3023427198547686,
+      "rx": -88.5,
       "ry": 0,
-      "rz": 0,
-      "scale": 14.531974248157695,
+      "rz": -165.00303770606865,
+      "scale": 128.4051473608744,
       "visible": true,
       "count": 1190878,
       "size": 38108096,
       "v": 0,
       "crop": {
-        "on": false,
-        "shape": "ellipse",
-        "rot": 0,
-        "rx": 100,
-        "ry": 100,
+        "on": true,
+        "shape": "rect",
+        "rot": 19,
+        "rx": 500,
+        "ry": 143,
         "hmin": -50,
-        "hmax": 200,
+        "hmax": 33,
         "baked": false
       }
     }
