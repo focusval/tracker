@@ -84,17 +84,68 @@ export function enuMatrix(params){
   return R;
 }
 
-// Той самий тест обрізки, що у вершинному шейдері: еліпс по осях схід/північ
-// (радіуси в метрах) + діапазон висот відносно якоря.
+// Той самий тест обрізки, що у вершинному шейдері: еліпс АБО прямокутник по
+// осях схід/північ, повернутих на crop.rot градусів, + діапазон висот.
 export function cropKeeps(crop, e, n, u){
+  let ce = e, cn = n;
+  if (crop.rot){
+    const a = -crop.rot * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+    ce = c * e - s * n; cn = s * e + c * n;
+  }
   if (crop.shape === "rect"){
-    if (Math.abs(e) > crop.rx || Math.abs(n) > crop.ry) return false;
+    if (Math.abs(ce) > crop.rx || Math.abs(cn) > crop.ry) return false;
   } else {
-    const qe=e/crop.rx, qn=n/crop.ry;
+    const qe = ce / crop.rx, qn = cn / crop.ry;
     if (qe*qe + qn*qn > 1) return false;
   }
   if (u < crop.hmin || u > crop.hmax) return false;
   return true;
+}
+
+// 2D-подібність (Umeyama з рівномірним масштабом): знаходить s, кут φ і зсув t,
+// що найкраще відображають точки src → dst у площині: dst ≈ s·R(φ)·src + t.
+// src, dst — масиви [{x,y}] однакової довжини (≥2). Повертає
+// { scale, angleDeg, tx, ty, rms }. R(φ) — стандартний CCW-поворот.
+export function similarity2D(src, dst){
+  const n = Math.min(src.length, dst.length);
+  if (n < 2) throw new Error("Потрібно щонайменше 2 пари точок");
+  let sx=0, sy=0, dx=0, dy=0;
+  for (let i=0;i<n;i++){ sx+=src[i].x; sy+=src[i].y; dx+=dst[i].x; dy+=dst[i].y; }
+  sx/=n; sy/=n; dx/=n; dy/=n;
+  let a=0, b=0, den=0;
+  for (let i=0;i<n;i++){
+    const qx=src[i].x-sx, qy=src[i].y-sy;
+    const tx=dst[i].x-dx, ty=dst[i].y-dy;
+    a += qx*tx + qy*ty;   // ∑ (q·t)
+    b += qx*ty - qy*tx;   // ∑ (q×t)
+    den += qx*qx + qy*qy; // ∑ |q|²
+  }
+  if (den < 1e-12) throw new Error("Вихідні точки збігаються — розстав їх ширше");
+  const phi = Math.atan2(b, a);
+  const scale = Math.hypot(a, b) / den;
+  const c = Math.cos(phi), s = Math.sin(phi);
+  const tx = dx - scale*(c*sx - s*sy);
+  const ty = dy - scale*(s*sx + c*sy);
+  // середньоквадратична похибка підгонки (метри)
+  let se = 0;
+  for (let i=0;i<n;i++){
+    const px = scale*(c*src[i].x - s*src[i].y) + tx;
+    const py = scale*(s*src[i].x + c*src[i].y) + ty;
+    se += (px-dst[i].x)**2 + (py-dst[i].y)**2;
+  }
+  return { scale, angleDeg: phi*180/Math.PI, tx, ty, rms: Math.sqrt(se/n) };
+}
+
+// Горизонтальні координати (схід, північ) локальної точки p після лише
+// вирівнювання (Ry·Rx, без yaw rz і без масштабу) — «джерельні» точки q_i
+// для підгонки по відповідностях. Повертає {e, n, u}.
+export function levelHorizontal(p, rxDeg, ryDeg){
+  const R = rotationFromEuler(rxDeg, ryDeg, 0); // Rz(0)·Ry·Rx = Ry·Rx
+  return {
+    e: R[0]*p[0] + R[1]*p[1] + R[2]*p[2],
+    n: R[3]*p[0] + R[4]*p[1] + R[5]*p[2],
+    u: R[6]*p[0] + R[7]*p[1] + R[8]*p[2],
+  };
 }
 
 // Власний вектор найменшого власного числа симетричної 3×3 матриці
@@ -188,15 +239,40 @@ export function estimateLevel(pos, count, params, crop){
   const DEG = 180 / Math.PI;
   const rx = Math.atan2(n[1], n[2]) * DEG;
   const ry = Math.atan2(-n[0], Math.hypot(n[1], n[2])) * DEG;
-  // рівень землі — нижній перцентиль проєкцій відносно якоря сцени
+  // Рівень землі: найщільніший горизонтальний шар у нижній частині сцени
+  // (стійкіше за простий перцентиль — не «пливе» через поодинокі сплати нижче
+  // землі й не тоне через будівлі). Гістограма проєкцій на нормаль.
   const abs = new Float64Array(n0);
   for (let i = 0; i < n0; i++) abs[i] = n[0]*px[i] + n[1]*py[i] + n[2]*pz[i];
-  abs.sort();
-  const ground = abs[Math.floor(n0 * 0.08)];
+  const ground = groundLevel(abs);
   let alt = -(params.scale || 1) * ground;
   if (alt < -80) alt = -80;
   if (alt > 200) alt = 200;
   return { rx, ry, alt };
+}
+
+// Оцінка рівня землі за проєкціями на вертикаль: відкидає крайні викиди,
+// будує гістограму і бере найщільніший шар у нижній половині діапазону.
+export function groundLevel(values){
+  const a = Float64Array.from(values).sort();
+  const n = a.length;
+  if (!n) return 0;
+  const lo = a[Math.floor(n * 0.02)], hi = a[Math.floor(n * 0.98)];
+  const span = hi - lo;
+  if (span < 1e-9) return a[0];
+  const BINS = 64;
+  const hist = new Uint32Array(BINS);
+  for (let i = 0; i < n; i++){
+    let b = Math.floor((a[i] - lo) / span * BINS);
+    if (b < 0) b = 0; if (b >= BINS) b = BINS - 1;
+    hist[b]++;
+  }
+  // найщільніший бін у нижніх 55% діапазону — це поверхня землі
+  const limit = Math.max(1, Math.floor(BINS * 0.55));
+  let best = 0, bestCount = -1;
+  for (let b = 0; b < limit; b++) if (hist[b] > bestCount){ bestCount = hist[b]; best = b; }
+  // низ найщільнішого шару, щоб земля сідала на карту, а не трохи над нею
+  return lo + span * (best / BINS);
 }
 
 // Індекси сплатів, що лишаються після обрізки (для запікання на CPU).

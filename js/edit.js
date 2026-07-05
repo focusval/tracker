@@ -14,13 +14,13 @@ let marker = null;
 
 // Стан редагування, що не зберігається у scenes.json: маска стертих гумкою
 // сплатів і стек «крок назад». Тримаємо лише для вибраної сцени.
-const edits = new Map(); // id -> { mask: Uint8Array|null, history: [], eraseMode: bool }
+const edits = new Map(); // id -> { mask, history:[], redo:[], eraseMode, align }
 function editRec(id){
   let e = edits.get(id);
-  if (!e){ e = { mask: null, history: [], eraseMode: false }; edits.set(id, e); }
+  if (!e){ e = { mask: null, history: [], redo: [], eraseMode: false, align: null }; edits.set(id, e); }
   return e;
 }
-const HISTORY_MAX = 40;
+const HISTORY_MAX = 60;
 
 // ── вхід/вихід ──
 
@@ -79,10 +79,12 @@ function updateDirtyDot(){
 export function selectScene(id){
   const sc = state.scenes.find((s) => s.id === id);
   if (!sc) return;
-  // якщо була увімкнена гумка на попередній сцені — вимкнути
+  // при зміні сцени — вимкнути гумку і прив'язку попередньої
   if (state.selectedId && state.selectedId !== id){
     const prev = state.scenes.find((s) => s.id === state.selectedId);
     if (prev){ editRec(prev.id).eraseMode = false; applyEraseMode(prev); }
+    if (alignMode) exitAlign();
+    clearAlignMarkers();
   }
   state.selectedId = id;
   // кеш байтів тримаємо лише для вибраної сцени (пам'ять телефона)
@@ -95,19 +97,20 @@ export function selectScene(id){
   refreshCalib(sc);
   placeMarker(sc);
   updateEllipse(sc);
-  const e = editRec(id);
   applyEraseMode(sc);
-  $("#eraseCount").textContent = e.mask ? ("стерто " + fmtInt(e.mask.reduce((a, b) => a + b, 0)) + " сплатів") : "";
+  updateEraseCount(sc);
+  updateAlignInfo(sc);
   updateUndoBtn(sc);
   renderSceneList();
   // розкрити шторку і показати панель — інакше на телефоні її не видно
   $("#sheet").classList.add("open");
-  setTimeout(() => $("#calib").scrollIntoView({ behavior: "smooth", block: "start" }), 250);
 }
 
 function deselect(){
   const sc = selected();
   if (sc){ editRec(sc.id).eraseMode = false; applyEraseMode(sc); }
+  if (alignMode) exitAlign();
+  clearAlignMarkers();
   state.selectedId = null;
   $("#calib").hidden = true;
   if (marker){ marker.remove(); marker = null; }
@@ -140,7 +143,7 @@ function applyParams(sc){
   updateEllipse(sc);
 }
 
-// ── «крок назад»: знімки стану сцени (параметри + обрізка + маска гумки) ──
+// ── «крок назад / вперед»: знімки стану (параметри + обрізка + маска гумки) ──
 
 function snapshot(sc){
   const e = editRec(sc.id);
@@ -152,30 +155,34 @@ function snapshot(sc){
   };
 }
 
-// Фіксуємо стан ПЕРЕД зміною. reason — для дедуплікації дрібних рухів слайдера.
-let lastPushReason = null, lastPushAt = 0;
-function pushHistory(sc, reason){
-  const now = Date.now();
-  // серію швидких змін одного контролу (слайдер) згортаємо в один крок
-  if (reason && reason === lastPushReason && now - lastPushAt < 700){ lastPushAt = now; return; }
-  lastPushReason = reason; lastPushAt = now;
+// Фіксуємо стан ПЕРЕД зміною і скидаємо стек «вперед».
+// Викликати на початку кожного жесту (один знімок на дію).
+function pushHistory(sc){
   const e = editRec(sc.id);
   e.history.push(snapshot(sc));
   if (e.history.length > HISTORY_MAX) e.history.shift();
+  e.redo = [];
   updateUndoBtn(sc);
 }
 
+// Одна фіксація на жест: беремо знімок на pointerdown/keydown, а не на кожен input.
+let gestureOpen = false;
+function beginGesture(sc){
+  if (gestureOpen || !sc) return;
+  gestureOpen = true;
+  pushHistory(sc);
+}
+function endGesture(){ gestureOpen = false; }
+
 function updateUndoBtn(sc){
   const e = sc ? editRec(sc.id) : null;
-  const btn = $("#undoBtn");
-  if (btn) btn.disabled = !e || e.history.length === 0;
+  const u = $("#undoBtn"), r = $("#redoBtn");
+  if (u) u.disabled = !e || e.history.length === 0;
+  if (r) r.disabled = !e || e.redo.length === 0;
 }
 
-function undo(){
-  const sc = selected(); if (!sc) return;
+function restore(sc, snap){
   const e = editRec(sc.id);
-  const snap = e.history.pop();
-  if (!snap){ toast("Немає що скасовувати.", "info"); return; }
   sc.lng = snap.lng; sc.lat = snap.lat; sc.alt = snap.alt;
   sc.rx = snap.rx; sc.ry = snap.ry; sc.rz = snap.rz; sc.scale = snap.scale;
   Object.assign(sc.crop, snap.crop);
@@ -186,8 +193,32 @@ function undo(){
   if (marker) marker.setLngLat([sc.lng, sc.lat]);
   refreshCalib(sc);
   updateEllipse(sc);
+  updateEraseCount(sc);
   updateUndoBtn(sc);
   markDirty();
+}
+
+function undo(){
+  const sc = selected(); if (!sc) return;
+  const e = editRec(sc.id);
+  if (!e.history.length){ toast("Немає що скасовувати.", "info"); return; }
+  e.redo.push(snapshot(sc));
+  restore(sc, e.history.pop());
+}
+
+function redoStep(){
+  const sc = selected(); if (!sc) return;
+  const e = editRec(sc.id);
+  if (!e.redo.length){ toast("Немає що повторити.", "info"); return; }
+  e.history.push(snapshot(sc));
+  restore(sc, e.redo.pop());
+}
+
+function updateEraseCount(sc){
+  const e = editRec(sc.id);
+  const total = e.mask ? e.mask.reduce((a, b) => a + b, 0) : 0;
+  const el = $("#eraseCount");
+  if (el) el.textContent = total ? ("стерто " + fmtInt(total) + " сплатів") : "";
 }
 
 // шкала масштабу — логарифмічна: 0..1000 → 0.05×..300×
@@ -204,6 +235,7 @@ const ranges = [
 ];
 
 const cropRanges = [
+  { r: "#cropRot",  l: "#cropRotVal",  k: "rot",  fmt: (v) => v + "°" },
   { r: "#cropRx",   l: "#cropRxVal",   k: "rx",   fmt: (v) => v + " м" },
   { r: "#cropRy",   l: "#cropRyVal",   k: "ry",   fmt: (v) => v + " м" },
   { r: "#cropHmin", l: "#cropHminVal", k: "hmin", fmt: (v) => v + " м" },
@@ -228,17 +260,21 @@ function refreshCalib(sc){
 
 function wireCalib(){
   for (const c of ranges){
+    $(c.r).addEventListener("pointerdown", () => beginGesture(selected()));
+    $(c.r).addEventListener("keydown", () => beginGesture(selected()));
     $(c.r).addEventListener("input", () => {
       const sc = selected(); if (!sc) return;
-      pushHistory(sc, c.r);
+      beginGesture(sc);
       c.set(sc, +$(c.r).value);
       $(c.l).textContent = c.fmt(c.get(sc));
       applyParams(sc);
     });
   }
+  $("#scaleRange").addEventListener("pointerdown", () => beginGesture(selected()));
+  $("#scaleRange").addEventListener("keydown", () => beginGesture(selected()));
   $("#scaleRange").addEventListener("input", () => {
     const sc = selected(); if (!sc) return;
-    pushHistory(sc, "scale");
+    beginGesture(sc);
     sc.scale = scaleFromT(+$("#scaleRange").value);
     $("#scaleVal").textContent = "×" + sc.scale.toFixed(2);
     applyParams(sc);
@@ -246,7 +282,7 @@ function wireCalib(){
   for (const axis of ["rx", "ry", "rz"]){
     $("#" + axis + "Plus").addEventListener("click", () => {
       const sc = selected(); if (!sc) return;
-      pushHistory(sc, null);
+      pushHistory(sc);
       sc[axis] = wrap180(sc[axis] + 90);
       $("#" + axis + "Range").value = sc[axis];
       $("#" + axis + "Val").textContent = sc[axis] + "°";
@@ -268,7 +304,7 @@ function wireCalib(){
   });
   $("#cropChk").addEventListener("change", () => {
     const sc = selected(); if (!sc) return;
-    pushHistory(sc, null);
+    pushHistory(sc);
     sc.crop.on = $("#cropChk").checked;
     $("#cropBody").hidden = !sc.crop.on;
     layer.setCrop(sc.id, sc.crop);
@@ -277,7 +313,7 @@ function wireCalib(){
   for (const btn of document.querySelectorAll(".shape-btn")){
     btn.addEventListener("click", () => {
       const sc = selected(); if (!sc) return;
-      pushHistory(sc, null);
+      pushHistory(sc);
       sc.crop.shape = btn.dataset.shape;
       refreshShapeButtons(sc);
       layer.setCrop(sc.id, sc.crop);
@@ -285,9 +321,11 @@ function wireCalib(){
     });
   }
   for (const c of cropRanges){
+    $(c.r).addEventListener("pointerdown", () => beginGesture(selected()));
+    $(c.r).addEventListener("keydown", () => beginGesture(selected()));
     $(c.r).addEventListener("input", () => {
       const sc = selected(); if (!sc) return;
-      pushHistory(sc, c.r);
+      beginGesture(sc);
       sc.crop[c.k] = +$(c.r).value;
       if (c.k === "hmin" && sc.crop.hmin > sc.crop.hmax){ sc.crop.hmax = sc.crop.hmin; refreshCalib(sc); }
       if (c.k === "hmax" && sc.crop.hmax < sc.crop.hmin){ sc.crop.hmin = sc.crop.hmax; refreshCalib(sc); }
@@ -296,11 +334,18 @@ function wireCalib(){
       markDirty(); updateEllipse(sc);
     });
   }
+  // завершення жесту слайдера — глобально (миша/палець можуть відпуститись будь-де)
+  window.addEventListener("pointerup", endGesture);
+  window.addEventListener("keyup", endGesture);
+
   $("#eraseBtn").addEventListener("click", () => {
-    const sc = selected(); if (!sc) return;
-    toggleErase(sc);
+    const sc = selected(); if (sc) toggleErase(sc);
+  });
+  $("#eraseThrough").addEventListener("change", () => {
+    $("#eraseThroughLabel").textContent = $("#eraseThrough").checked ? "наскрізь (обидва боки)" : "лише поверхня (один бік)";
   });
   $("#undoBtn").addEventListener("click", undo);
+  $("#redoBtn").addEventListener("click", redoStep);
   $("#bakeBtn").addEventListener("click", () => {
     const sc = selected();
     if (sc) bakeScene(sc).catch((e) => { toastError(e); hideProgress(); });
@@ -315,6 +360,24 @@ function wireCalib(){
   });
   $("#closeCalib").addEventListener("click", deselect);
   wireEraser();
+  wireAlign();
+  wireGroups();
+}
+
+// акордеон груп: тап по заголовку розкриває одну групу, ховаючи інші
+function wireGroups(){
+  for (const head of document.querySelectorAll(".acc-head")){
+    head.addEventListener("click", () => {
+      const grp = head.parentElement;
+      const wasOpen = grp.classList.contains("open");
+      for (const g of document.querySelectorAll(".acc-group")) g.classList.remove("open");
+      if (!wasOpen){
+        grp.classList.add("open");
+        $("#sheet").classList.add("open");
+        setTimeout(() => grp.scrollIntoView({ behavior: "smooth", block: "nearest" }), 100);
+      }
+    });
+  }
 }
 
 function refreshShapeButtons(sc){
@@ -339,23 +402,34 @@ function lngLatToMeters(sc, ll){
   };
 }
 
-// Контур обрізки (полігон) + внутрішня сітка для орієнтації.
+// точка в crop-локальних координатах (bx схід, by північ) з поворотом rot → lng/lat
+function cropLocalToLngLat(sc, bx, by){
+  const a = (sc.crop.rot || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  return metersToLngLat(sc, c*bx - s*by, s*bx + c*by);
+}
+// зворотне: точка на карті → crop-локальні координати (з урахуванням rot)
+function lngLatToCropLocal(sc, ll){
+  const m = lngLatToMeters(sc, ll);
+  const a = -(sc.crop.rot || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  return { x: c*m.e - s*m.n, y: s*m.e + c*m.n };
+}
+
+// Контур обрізки (полігон) + внутрішня сітка, з урахуванням повороту rot.
 function cropGeoJSON(sc){
   const rx = sc.crop.rx, ry = sc.crop.ry;
   const outline = [];
   if (sc.crop.shape === "rect"){
-    outline.push(metersToLngLat(sc, -rx, -ry), metersToLngLat(sc, rx, -ry),
-      metersToLngLat(sc, rx, ry), metersToLngLat(sc, -rx, ry), metersToLngLat(sc, -rx, -ry));
+    outline.push(cropLocalToLngLat(sc, -rx, -ry), cropLocalToLngLat(sc, rx, -ry),
+      cropLocalToLngLat(sc, rx, ry), cropLocalToLngLat(sc, -rx, ry), cropLocalToLngLat(sc, -rx, -ry));
   } else {
     for (let i = 0; i <= 64; i++){
       const a = (i / 64) * 2 * Math.PI;
-      outline.push(metersToLngLat(sc, rx * Math.cos(a), ry * Math.sin(a)));
+      outline.push(cropLocalToLngLat(sc, rx * Math.cos(a), ry * Math.sin(a)));
     }
   }
   const features = [
     { type: "Feature", geometry: { type: "Polygon", coordinates: [outline] }, properties: { role: "fill" } },
   ];
-  // сітка: лінії кожні ~1/4 розміру, обрізані по формі
   const grid = [];
   const nx = 4, ny = 4;
   const inShape = (e, n) => sc.crop.shape === "rect"
@@ -366,7 +440,7 @@ function cropGeoJSON(sc){
     const seg = [];
     for (let j = 0; j <= 40; j++){
       const n = -ry + (2 * ry) * j / 40;
-      if (inShape(e, n)) seg.push(metersToLngLat(sc, e, n));
+      if (inShape(e, n)) seg.push(cropLocalToLngLat(sc, e, n));
       else if (seg.length){ grid.push(seg.slice()); seg.length = 0; }
     }
     if (seg.length > 1) grid.push(seg);
@@ -376,7 +450,7 @@ function cropGeoJSON(sc){
     const seg = [];
     for (let j = 0; j <= 40; j++){
       const e = -rx + (2 * rx) * j / 40;
-      if (inShape(e, n)) seg.push(metersToLngLat(sc, e, n));
+      if (inShape(e, n)) seg.push(cropLocalToLngLat(sc, e, n));
       else if (seg.length){ grid.push(seg.slice()); seg.length = 0; }
     }
     if (seg.length > 1) grid.push(seg);
@@ -387,11 +461,11 @@ function cropGeoJSON(sc){
 }
 
 const clampR = (v) => Math.max(5, Math.min(500, Math.round(v)));
-let handleE = null, handleN = null; // ручки зміни радіусів прямо на карті
+let handleE = null, handleN = null, handleRot = null; // ручки на карті
 
-function makeHandle(label){
+function makeHandle(label, cls){
   const el = document.createElement("div");
-  el.className = "crop-handle";
+  el.className = "crop-handle" + (cls ? " " + cls : "");
   el.textContent = label;
   return new maplibregl.Marker({ element: el, draggable: true });
 }
@@ -399,34 +473,52 @@ function makeHandle(label){
 function syncHandles(sc){
   const show = sc && sc.crop.on && state.editing;
   if (!show){
-    if (handleE){ handleE.remove(); handleE = null; }
-    if (handleN){ handleN.remove(); handleN = null; }
+    for (const h of [handleE, handleN, handleRot]) if (h) h.remove();
+    handleE = handleN = handleRot = null;
     return;
   }
   if (!handleE){
-    handleE = makeHandle("↔").setLngLat(metersToLngLat(sc, sc.crop.rx, 0)).addTo(map);
+    handleE = makeHandle("↔").addTo(map);
+    handleE.on("dragstart", () => beginGesture(selected()));
     handleE.on("drag", () => {
       const s = selected(); if (!s) return;
-      s.crop.rx = clampR(Math.abs(lngLatToMeters(s, handleE.getLngLat()).e));
+      s.crop.rx = clampR(Math.abs(lngLatToCropLocal(s, handleE.getLngLat()).x));
       cropChangedLive(s);
     });
-    handleE.on("dragend", () => { const s = selected(); if (s) syncHandlePositions(s); });
+    handleE.on("dragend", () => { endGesture(); const s = selected(); if (s) syncHandlePositions(s); });
   }
   if (!handleN){
-    handleN = makeHandle("↕").setLngLat(metersToLngLat(sc, 0, sc.crop.ry)).addTo(map);
+    handleN = makeHandle("↕").addTo(map);
+    handleN.on("dragstart", () => beginGesture(selected()));
     handleN.on("drag", () => {
       const s = selected(); if (!s) return;
-      s.crop.ry = clampR(Math.abs(lngLatToMeters(s, handleN.getLngLat()).n));
+      s.crop.ry = clampR(Math.abs(lngLatToCropLocal(s, handleN.getLngLat()).y));
       cropChangedLive(s);
     });
-    handleN.on("dragend", () => { const s = selected(); if (s) syncHandlePositions(s); });
+    handleN.on("dragend", () => { endGesture(); const s = selected(); if (s) syncHandlePositions(s); });
+  }
+  if (!handleRot){
+    handleRot = makeHandle("⟳", "rot").addTo(map);
+    handleRot.on("dragstart", () => beginGesture(selected()));
+    handleRot.on("drag", () => {
+      const s = selected(); if (!s) return;
+      const m = lngLatToMeters(s, handleRot.getLngLat());
+      // напрям на ручку задає локальну вісь «північ» обрізки: rot = atan2(-e, n)
+      s.crop.rot = Math.round(Math.atan2(-m.e, m.n) * 180 / Math.PI);
+      layer.setCrop(s.id, s.crop);
+      const src = map.getSource("crop-ellipse"); if (src) src.setData(cropGeoJSON(s));
+      $("#cropRot").value = s.crop.rot; $("#cropRotVal").textContent = s.crop.rot + "°";
+      markDirty();
+    });
+    handleRot.on("dragend", () => { endGesture(); const s = selected(); if (s) syncHandlePositions(s); });
   }
   syncHandlePositions(sc);
 }
 
 function syncHandlePositions(sc){
-  if (handleE) handleE.setLngLat(metersToLngLat(sc, sc.crop.rx, 0));
-  if (handleN) handleN.setLngLat(metersToLngLat(sc, 0, sc.crop.ry));
+  if (handleE) handleE.setLngLat(cropLocalToLngLat(sc, sc.crop.rx, 0));
+  if (handleN) handleN.setLngLat(cropLocalToLngLat(sc, 0, sc.crop.ry));
+  if (handleRot) handleRot.setLngLat(cropLocalToLngLat(sc, 0, sc.crop.ry + Math.max(15, sc.crop.ry * 0.25)));
 }
 
 // живе оновлення під час перетягування ручки: рендер, контур, слайдери
@@ -436,6 +528,7 @@ function cropChangedLive(sc){
   if (src) src.setData(cropGeoJSON(sc));
   $("#cropRx").value = sc.crop.rx; $("#cropRxVal").textContent = sc.crop.rx + " м";
   $("#cropRy").value = sc.crop.ry; $("#cropRyVal").textContent = sc.crop.ry + " м";
+  if (handleRot) handleRot.setLngLat(cropLocalToLngLat(sc, 0, sc.crop.ry + Math.max(15, sc.crop.ry * 0.25)));
   markDirty();
 }
 
@@ -464,20 +557,41 @@ function toggleErase(sc){
 
 function applyEraseMode(sc){
   const e = editRec(sc.id);
+  if (e.eraseMode && alignMode) exitAlign(); // гумка й прив'язка взаємовиключні
   const btn = $("#eraseBtn");
   btn.classList.toggle("active", e.eraseMode);
-  btn.textContent = e.eraseMode ? "Гумка: увімкнено (малюй по сцені)" : "Гумка — стерти деталі";
+  btn.textContent = e.eraseMode ? "Гумка увімкнена — малюй по сцені (натисни, щоб вимкнути)" : "Гумка — стерти деталі";
   document.body.classList.toggle("erasing", e.eraseMode);
   const canvas = map.getCanvas();
   canvas.style.cursor = e.eraseMode ? "crosshair" : "";
   // під час стирання блокуємо перетягування карти, щоб мазок не рухав вид
   if (e.eraseMode){ map.dragPan.disable(); map.dragRotate.disable(); }
-  else { map.dragPan.enable(); map.dragRotate.enable(); }
+  else if (!alignMode){ map.dragPan.enable(); map.dragRotate.enable(); hideBrushRing(); }
 }
 
 function eraseRadiusCss(){
   return +($("#eraseSize") ? $("#eraseSize").value : 24) || 24;
 }
+function eraseDepthFrac(){
+  return ($("#eraseThrough") && $("#eraseThrough").checked) ? 1 : 0.12;
+}
+
+// кільце-контур пензля, що йде за курсором
+function showBrushRing(x, y){
+  let ring = $("#brushRing");
+  if (!ring){
+    ring = document.createElement("div");
+    ring.id = "brushRing";
+    document.body.appendChild(ring);
+  }
+  const r = eraseRadiusCss();
+  const rect = map.getCanvas().getBoundingClientRect();
+  ring.style.display = "block";
+  ring.style.width = ring.style.height = (r * 2) + "px";
+  ring.style.left = (rect.left + x) + "px";
+  ring.style.top = (rect.top + y) + "px";
+}
+function hideBrushRing(){ const ring = $("#brushRing"); if (ring) ring.style.display = "none"; }
 
 function wireEraser(){
   const canvas = map.getCanvas();
@@ -489,20 +603,26 @@ function wireEraser(){
     const sc = selected(); if (!sc) return;
     if (!editRec(sc.id).eraseMode) return;
     ev.preventDefault();
-    pushHistory(sc, null); // цілий мазок — один крок «назад»
+    pushHistory(sc); // цілий мазок — один крок «назад»
     eraseActive = true;
-    erasePoints = [toCss(ev)];
+    const p = toCss(ev);
+    erasePoints = [p];
+    showBrushRing(p.x, p.y);
     canvas.setPointerCapture(ev.pointerId);
     scheduleEraseFlush(sc);
   });
   canvas.addEventListener("pointermove", (ev) => {
-    if (!eraseActive) return;
-    erasePoints.push(toCss(ev));
-    scheduleEraseFlush(selected());
+    const sc = selected();
+    if (sc && editRec(sc.id).eraseMode){
+      const p = toCss(ev);
+      showBrushRing(p.x, p.y);
+      if (eraseActive){ erasePoints.push(p); scheduleEraseFlush(sc); }
+    }
   });
   const finish = () => { eraseActive = false; erasePoints = []; };
   canvas.addEventListener("pointerup", finish);
   canvas.addEventListener("pointercancel", finish);
+  canvas.addEventListener("pointerleave", () => { if (!eraseActive) hideBrushRing(); });
 }
 
 // накопичені точки шлемо у рендерер пачками (не частіше ~40 мс)
@@ -513,7 +633,7 @@ function scheduleEraseFlush(sc){
     if (!erasePoints.length) return;
     const batch = erasePoints;
     erasePoints = eraseActive ? [batch[batch.length - 1]] : [];
-    layer.eraseStroke(sc.id, batch, eraseRadiusCss());
+    layer.eraseStroke(sc.id, batch, eraseRadiusCss(), eraseDepthFrac());
   }, 40);
 }
 
@@ -523,10 +643,170 @@ function onEraseResult(id, mask, hit, total){
   e.mask = mask;
   const sc = state.scenes.find((s) => s.id === id);
   if (sc){
-    $("#eraseCount").textContent = total ? ("стерто " + fmtInt(total) + " сплатів") : "";
+    updateEraseCount(sc);
     markDirty();
     updateUndoBtn(sc);
   }
+}
+
+// ── прив'язка по точках: N відповідностей сплат↔карта → масштаб/поворот/позиція ──
+
+let alignMode = null;      // null | "awaitSrc" | "awaitDst"
+let alignPending = null;   // { pos, srcMarker } поки чекаємо точку на карті
+const alignMarkers = [];   // усі маркери-пари на карті (для очищення)
+
+function alignRec(sc){
+  const e = editRec(sc.id);
+  if (!e.align) e.align = []; // [{ src:[x,y,z], dst:[lng,lat] }]
+  return e.align;
+}
+
+function enterAlign(){
+  const sc = selected(); if (!sc) return;
+  // вимкнути гумку
+  const e = editRec(sc.id);
+  if (e.eraseMode){ e.eraseMode = false; applyEraseMode(sc); }
+  alignMode = "awaitSrc";
+  map.dragPan.disable();
+  $("#alignBtn").classList.add("active");
+  $("#alignBtn").textContent = "Прив'язка: тапни точку на СПЛАТі";
+  updateAlignInfo(sc);
+  toast("Тапни характерну точку на сплаті (ріг будинку, перехрестя), потім — те саме місце на супутниковій карті. Треба ≥3 пари.", "info", 9000);
+}
+
+function exitAlign(){
+  alignMode = null;
+  alignPending = null;
+  const sc = selected();
+  if (sc && !editRec(sc.id).eraseMode) map.dragPan.enable();
+  $("#alignBtn").classList.remove("active");
+  $("#alignBtn").textContent = "Прив'язка по точках";
+}
+
+function clearAlignMarkers(){
+  for (const m of alignMarkers) m.remove();
+  alignMarkers.length = 0;
+  if (alignPending && alignPending.srcMarker) alignPending.srcMarker.remove();
+  alignPending = null;
+  const src = map.getSource("align-lines");
+  if (src) src.setData({ type: "FeatureCollection", features: [] });
+}
+
+function alignBadge(num, kind){
+  const el = document.createElement("div");
+  el.className = "align-badge " + kind;
+  el.textContent = num;
+  return new maplibregl.Marker({ element: el });
+}
+
+function refreshAlignLines(sc){
+  const pairs = alignRec(sc);
+  const feats = pairs.filter((p) => p.srcLngLat && p.dst).map((p) => ({
+    type: "Feature",
+    geometry: { type: "LineString", coordinates: [p.srcLngLat, p.dst] },
+    properties: {},
+  }));
+  const src = map.getSource("align-lines");
+  if (src) src.setData({ type: "FeatureCollection", features: feats });
+}
+
+function updateAlignInfo(sc){
+  const n = alignRec(sc).length;
+  $("#alignInfo").textContent = "Пар точок: " + n + (n < 3 ? " (треба ≥3)" : " — можна накладати");
+  $("#alignApplyBtn").disabled = n < 2;
+}
+
+function onAlignClick(e){
+  const sc = selected(); if (!sc || !alignMode) return;
+  if (alignMode === "awaitSrc"){
+    // вибрати найближчий сплат під точкою натискання
+    layer.pickSplat(sc.id, e.point.x, e.point.y, "align");
+  } else if (alignMode === "awaitDst" && alignPending){
+    const pair = { src: alignPending.pos, srcLngLat: alignPending.srcLngLat, dst: [e.lngLat.lng, e.lngLat.lat] };
+    const num = alignRec(sc).length + 1;
+    alignRec(sc).push(pair);
+    // маркер цілі на карті
+    const dm = alignBadge(num, "dst").setLngLat(pair.dst).addTo(map);
+    alignMarkers.push(dm, alignPending.srcMarker);
+    alignPending = null;
+    alignMode = "awaitSrc";
+    $("#alignBtn").textContent = "Прив'язка: тапни точку на СПЛАТі";
+    refreshAlignLines(sc);
+    updateAlignInfo(sc);
+  }
+}
+
+// колбек вибору сплата
+function onPickResult(id, tag, pos){
+  const sc = selected();
+  if (!sc || sc.id !== id || tag !== "align" || alignMode !== "awaitSrc") return;
+  if (!pos){ toast("Тут немає сплата — цілься в саму сцену.", "error"); return; }
+  const lngLat = layer.localToLngLat(id, pos);
+  const num = alignRec(sc).length + 1;
+  const sm = alignBadge(num, "src").setLngLat(lngLat).addTo(map);
+  alignPending = { pos, srcLngLat: lngLat, srcMarker: sm };
+  alignMode = "awaitDst";
+  $("#alignBtn").textContent = "Прив'язка: тапни ЦІЛЬ на карті";
+  toast("Тепер тапни на карті, куди має стати ця точка.", "info", 6000);
+}
+
+function applyAlign(){
+  const sc = selected(); if (!sc) return;
+  const pairs = alignRec(sc).filter((p) => p.src && p.dst);
+  if (pairs.length < 2){ toast("Постав щонайменше 2 (краще 3+) пари точок.", "error"); return; }
+  const D = Math.PI / 180;
+  const mPerLng = 111320 * Math.cos(sc.lat * D), mPerLat = 110540;
+  // джерело: горизонталь локальної точки після лише вирівнювання (без scale/rz/anchor)
+  const srcPts = [], dstPts = [], ups = [];
+  for (const p of pairs){
+    const h = levelHorizontal(p.src, sc.rx, sc.ry);
+    srcPts.push({ x: h.e, y: h.n });
+    ups.push(h.u);
+    dstPts.push({ x: (p.dst[0] - sc.lng) * mPerLng, y: (p.dst[1] - sc.lat) * mPerLat });
+  }
+  let sim;
+  try { sim = similarity2D(srcPts, dstPts); }
+  catch (err){ toast(err.message, "error"); return; }
+  if (!(sim.scale > 0) || !Number.isFinite(sim.scale)){ toast("Не вдалося обчислити — розстав точки ширше.", "error"); return; }
+
+  pushHistory(sc);
+  sc.scale = Math.max(0.05, Math.min(300, sim.scale));
+  sc.rz = wrap180(sim.angleDeg);
+  sc.lng = sc.lng + sim.tx / mPerLng;
+  sc.lat = sc.lat + sim.ty / mPerLat;
+  // висота: посадити вибрані точки на рівень карти
+  ups.sort((a, b) => a - b);
+  const medUp = ups[ups.length >> 1];
+  sc.alt = Math.max(-80, Math.min(200, -sc.scale * medUp));
+
+  layer.setParams(sc.id, sceneParams(sc));
+  if (marker) marker.setLngLat([sc.lng, sc.lat]);
+  refreshCalib(sc);
+  updateEllipse(sc);
+  markDirty();
+  const rmsMap = sim.rms; // метри
+  toast("Накладено по " + pairs.length + " точках. Масштаб ×" + sc.scale.toFixed(2) +
+    ", поворот " + sc.rz.toFixed(1) + "°, похибка ≈ " + rmsMap.toFixed(1) + " м. " +
+    (rmsMap > 15 ? "Похибка велика — перевір точки або додай ще." : "Готово."), rmsMap > 15 ? "error" : "ok", 11000);
+  clearAlignMarkers();
+  alignRec(sc).length = 0;
+  updateAlignInfo(sc);
+  exitAlign();
+}
+
+function wireAlign(){
+  $("#alignBtn").addEventListener("click", () => {
+    if (alignMode) exitAlign(); else enterAlign();
+  });
+  $("#alignApplyBtn").addEventListener("click", applyAlign);
+  $("#alignClearBtn").addEventListener("click", () => {
+    const sc = selected(); if (!sc) return;
+    clearAlignMarkers();
+    alignRec(sc).length = 0;
+    updateAlignInfo(sc);
+  });
+  map.on("click", onAlignClick);
+  layer.onPick = onPickResult;
 }
 
 // ── експорт усього сайту-карти одним ZIP ──
@@ -608,7 +888,7 @@ async function handleFile(file){
       id, name: file.name.replace(/\.(ply|splat)$/i, ""), file: "scenes/" + id + ".splat",
       lng: c.lng, lat: c.lat, alt: 0, rx: 0, ry: 0, rz: 0, scale: 1,
       visible: true, count: data.count, size: bytes.byteLength, v: 0,
-      crop: { on: false, shape: "ellipse", rx: 100, ry: 100, hmin: -50, hmax: 200, baked: false },
+      crop: { on: false, shape: "ellipse", rot: 0, rx: 100, ry: 100, hmin: -50, hmax: 200, baked: false },
     };
     state.scenes.push(sc);
     const r = rt(id);
@@ -742,15 +1022,18 @@ async function bakeScene(sc){
   sc.v = (sc.v || 0) + 1;
   sc.crop.on = false;
   sc.crop.baked = true;
-  e.mask = null; e.history = [];
+  // маска, історія й точки прив'язки скидаються — вони вже враховані у файлі
+  e.mask = null; e.history = []; e.redo = []; e.align = [];
   e.eraseMode = false;
+  clearAlignMarkers();
   r.bytesCache = newBytes; r.needsCommit = false;
   const newData = parseSplatFile(newBytes);
   layer.addScene(sc.id, newData, sceneParams(sc), sc.visible, sc.crop);
   refreshCalib(sc);
   applyEraseMode(sc);
   clearEllipse();
-  $("#eraseCount").textContent = "";
+  updateEraseCount(sc);
+  updateAlignInfo(sc);
   updateUndoBtn(sc);
   renderSceneList(); updateStats();
 

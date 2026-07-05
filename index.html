@@ -56,84 +56,131 @@
           <div class="calib-head">
             <h3 id="calibTitle"></h3>
             <div class="calib-head-btns">
-              <button id="undoBtn" type="button" class="ghost" disabled>↶ Крок назад</button>
-              <button id="closeCalib" type="button" class="ghost">Згорнути</button>
+              <button id="undoBtn" type="button" class="ghost" disabled>↶</button>
+              <button id="redoBtn" type="button" class="ghost" disabled>↷</button>
+              <button id="closeCalib" type="button" class="ghost">✕</button>
             </div>
           </div>
-          <label class="field">Назва
-            <input id="nameInput" type="text" autocomplete="off">
-          </label>
-          <p class="hint">Позиція — перетягни жовтий маркер на карті.</p>
+          <p class="hint">Тапни групу нижче — відкриються тільки її повзунки, щоб карту було видно.</p>
 
-          <label class="field">Висота <output id="altVal"></output>
-            <input id="altRange" type="range" min="-80" max="200" step="0.5">
-          </label>
-          <label class="field">Масштаб <output id="scaleVal"></output>
-            <input id="scaleRange" type="range" min="0" max="1000" step="1">
-          </label>
-          <button id="autoLevelBtn" type="button">Авто-рівень — покласти сцену на карту</button>
-          <p class="hint">Сам вирівняє нахили X/Y по площині землі й підбере висоту. Найкраще працює після ввімкнення обрізки (щоб сфера «неба» не заважала).</p>
-          <label class="field">Поворот X <output id="rxVal"></output>
-            <span class="with-btn">
-              <input id="rxRange" type="range" min="-180" max="180" step="0.5">
-              <button id="rxPlus" type="button">+90°</button>
-            </span>
-          </label>
-          <label class="field">Поворот Y <output id="ryVal"></output>
-            <span class="with-btn">
-              <input id="ryRange" type="range" min="-180" max="180" step="0.5">
-              <button id="ryPlus" type="button">+90°</button>
-            </span>
-          </label>
-          <label class="field">Поворот Z <output id="rzVal"></output>
-            <span class="with-btn">
-              <input id="rzRange" type="range" min="-180" max="180" step="0.5">
-              <button id="rzPlus" type="button">+90°</button>
-            </span>
-          </label>
+          <!-- Група: положення і масштаб -->
+          <div class="acc-group">
+            <button type="button" class="acc-head">📍 Положення і масштаб</button>
+            <div class="acc-body">
+              <p class="hint">Позиція — перетягни жовтий маркер на карті.</p>
+              <label class="field">Висота над картою <output id="altVal"></output>
+                <input id="altRange" type="range" min="-80" max="200" step="0.5">
+              </label>
+              <label class="field">Масштаб <output id="scaleVal"></output>
+                <input id="scaleRange" type="range" min="0" max="1000" step="1">
+              </label>
+              <button id="autoLevelBtn" type="button">Авто-рівень — покласти на карту</button>
+              <p class="hint">Вирівнює нахили й садить сцену на землю. Найкраще — після ввімкнення обрізки.</p>
+            </div>
+          </div>
 
-          <label class="check">
-            <input id="visChk" type="checkbox"> Сцена видима (схована не вантажиться з мережі)
-          </label>
-
-          <div class="crop-block">
-            <label class="check">
-              <input id="cropChk" type="checkbox"> Обрізка (форма + висоти)
-            </label>
-            <div id="cropBody" hidden>
-              <div class="shape-row">
-                <button type="button" class="shape-btn" data-shape="ellipse">◯ Коло/еліпс</button>
-                <button type="button" class="shape-btn" data-shape="rect">▭ Прямокутник</button>
+          <!-- Група: точна прив'язка по точках -->
+          <div class="acc-group">
+            <button type="button" class="acc-head">🎯 Точна прив'язка по точках</button>
+            <div class="acc-body">
+              <p class="hint">Найточніший спосіб. Постав 3+ пари: точка на сплаті → те саме місце на карті. Кнопка «Накласти» підбере масштаб, поворот і позицію.</p>
+              <button id="alignBtn" type="button">Прив'язка по точках</button>
+              <p class="hint" id="alignInfo">Пар точок: 0 (треба ≥3)</p>
+              <div class="tool-row">
+                <button id="alignApplyBtn" type="button" class="primary" disabled>Накласти</button>
+                <button id="alignClearBtn" type="button">Скинути точки</button>
               </div>
-              <p class="hint">Межі тягни прямо на карті за ручки ↔ і ↕ на краю фігури. Небо зрізай повзунком «Висота до», туман під землею — «Висота від».</p>
-              <label class="field"><span id="cropRxLabel">Радіус схід–захід</span> <output id="cropRxVal"></output>
-                <input id="cropRx" type="range" min="5" max="500" step="5">
+            </div>
+          </div>
+
+          <!-- Група: повороти -->
+          <div class="acc-group">
+            <button type="button" class="acc-head">🔄 Повороти</button>
+            <div class="acc-body">
+              <label class="field">Поворот X <output id="rxVal"></output>
+                <span class="with-btn">
+                  <input id="rxRange" type="range" min="-180" max="180" step="0.5">
+                  <button id="rxPlus" type="button">+90°</button>
+                </span>
               </label>
-              <label class="field"><span id="cropRyLabel">Радіус північ–південь</span> <output id="cropRyVal"></output>
-                <input id="cropRy" type="range" min="5" max="500" step="5">
+              <label class="field">Поворот Y <output id="ryVal"></output>
+                <span class="with-btn">
+                  <input id="ryRange" type="range" min="-180" max="180" step="0.5">
+                  <button id="ryPlus" type="button">+90°</button>
+                </span>
               </label>
-              <label class="field">Висота від <output id="cropHminVal"></output>
-                <input id="cropHmin" type="range" min="-50" max="200" step="1">
-              </label>
-              <label class="field">Висота до <output id="cropHmaxVal"></output>
-                <input id="cropHmax" type="range" min="-50" max="200" step="1">
+              <label class="field">Поворот Z (напрям на північ) <output id="rzVal"></output>
+                <span class="with-btn">
+                  <input id="rzRange" type="range" min="-180" max="180" step="0.5">
+                  <button id="rzPlus" type="button">+90°</button>
+                </span>
               </label>
             </div>
           </div>
 
-          <div class="crop-block">
-            <button id="eraseBtn" type="button">Гумка — стерти деталі</button>
-            <label class="field">Розмір пензля
-              <input id="eraseSize" type="range" min="8" max="80" step="2" value="24">
-            </label>
-            <p class="hint erase-count" id="eraseCount"></p>
-            <p class="hint">Увімкни гумку і малюй пальцем/мишкою по зайвих деталях — вони зникнуть. Карта на цей час не рухається. «Крок назад» скасовує мазок.</p>
+          <!-- Група: обрізка -->
+          <div class="acc-group">
+            <button type="button" class="acc-head">✂️ Обрізка</button>
+            <div class="acc-body">
+              <label class="check">
+                <input id="cropChk" type="checkbox"> Увімкнути обрізку
+              </label>
+              <div id="cropBody" hidden>
+                <div class="shape-row">
+                  <button type="button" class="shape-btn" data-shape="ellipse">◯ Коло/еліпс</button>
+                  <button type="button" class="shape-btn" data-shape="rect">▭ Прямокутник</button>
+                </div>
+                <p class="hint">Межі тягни на карті за ручки ↔ ↕, поворот — за ручку ⟳. Небо зрізай «Висота до», туман — «Висота від».</p>
+                <label class="field">Поворот фігури <output id="cropRotVal"></output>
+                  <input id="cropRot" type="range" min="-180" max="180" step="1">
+                </label>
+                <label class="field"><span id="cropRxLabel">Радіус схід–захід</span> <output id="cropRxVal"></output>
+                  <input id="cropRx" type="range" min="5" max="500" step="5">
+                </label>
+                <label class="field"><span id="cropRyLabel">Радіус північ–південь</span> <output id="cropRyVal"></output>
+                  <input id="cropRy" type="range" min="5" max="500" step="5">
+                </label>
+                <label class="field">Висота від <output id="cropHminVal"></output>
+                  <input id="cropHmin" type="range" min="-50" max="200" step="1">
+                </label>
+                <label class="field">Висота до <output id="cropHmaxVal"></output>
+                  <input id="cropHmax" type="range" min="-50" max="200" step="1">
+                </label>
+              </div>
+            </div>
           </div>
 
-          <button id="bakeBtn" type="button" class="primary">Запекти зміни назавжди</button>
-          <p class="hint">Записує обрізку і стирання у файл (менший розмір). Оригінал збережеться поруч як *.orig.splat.</p>
+          <!-- Група: гумка -->
+          <div class="acc-group">
+            <button type="button" class="acc-head">🩹 Гумка (стерти деталі)</button>
+            <div class="acc-body">
+              <button id="eraseBtn" type="button">Гумка — стерти деталі</button>
+              <label class="field">Розмір пензля
+                <input id="eraseSize" type="range" min="8" max="120" step="2" value="28">
+              </label>
+              <label class="check">
+                <input id="eraseThrough" type="checkbox"> <span id="eraseThroughLabel">лише поверхня (один бік)</span>
+              </label>
+              <p class="hint erase-count" id="eraseCount"></p>
+              <p class="hint">Увімкни гумку і малюй по зайвих деталях. За замовчуванням стирає лише ближній бік (напр. один фасад). Карта не рухається; «↶» скасовує мазок.</p>
+            </div>
+          </div>
 
-          <button id="deleteBtn" type="button" class="danger">Видалити сцену…</button>
+          <!-- Група: інше -->
+          <div class="acc-group">
+            <button type="button" class="acc-head">⚙️ Назва, збереження, видалення</button>
+            <div class="acc-body">
+              <label class="field">Назва
+                <input id="nameInput" type="text" autocomplete="off">
+              </label>
+              <label class="check">
+                <input id="visChk" type="checkbox"> Сцена видима (схована не вантажиться)
+              </label>
+              <button id="bakeBtn" type="button" class="primary">Запекти зміни назавжди</button>
+              <p class="hint">Записує обрізку і стирання у файл. Оригінал → *.orig.splat.</p>
+              <button id="deleteBtn" type="button" class="danger">Видалити сцену…</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
