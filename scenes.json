@@ -1,5 +1,36 @@
 {
   "version": 1,
-  "updated": "2026-07-05T07:10:18.125Z",
-  "scenes": []
+  "updated": "2026-07-05T00:00:00.000Z",
+  "scenes": [
+    {
+      "id": "smr7iwqn0",
+      "name": "Скан 1 (останній)",
+      "file": "scenes/smr7iwqn0.splat",
+      "lng": 38.4933, "lat": 48.948, "alt": 0,
+      "rx": 0, "ry": 0, "rz": 0, "scale": 1,
+      "visible": true,
+      "count": 1082838, "size": 34650816, "v": 0,
+      "crop": { "on": false, "shape": "ellipse", "rot": 0, "rx": 100, "ry": 100, "hmin": -50, "hmax": 200, "baked": false }
+    },
+    {
+      "id": "smr7gbz8v",
+      "name": "Скан 2",
+      "file": "scenes/smr7gbz8v.splat",
+      "lng": 38.4943, "lat": 48.948, "alt": 0,
+      "rx": 0, "ry": 0, "rz": 0, "scale": 1,
+      "visible": false,
+      "count": 1083618, "size": 34675776, "v": 0,
+      "crop": { "on": false, "shape": "ellipse", "rot": 0, "rx": 100, "ry": 100, "hmin": -50, "hmax": 200, "baked": false }
+    },
+    {
+      "id": "smr6sue9g",
+      "name": "Скан 3 (gs_Mmmm)",
+      "file": "scenes/smr6sue9g.splat",
+      "lng": 38.4923, "lat": 48.948, "alt": 0,
+      "rx": 0, "ry": 0, "rz": 0, "scale": 1,
+      "visible": false,
+      "count": 1190878, "size": 38108096, "v": 0,
+      "crop": { "on": false, "shape": "ellipse", "rot": 0, "rx": 100, "ry": 100, "hmin": -50, "hmax": 200, "baked": false }
+    }
+  ]
 }

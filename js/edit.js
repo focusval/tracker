@@ -898,6 +898,19 @@ async function handleFile(file){
     hideProgress();
     toast("Сцена на карті. Комічу файл у репозиторій…", "info");
     await commitSceneFile(sc);
+    // КРИТИЧНО: одразу фіксуємо сцену у scenes.json, щоб вона не загубилась,
+    // якщо сторінку закрити до «Зберегти в архів» (інакше — файл-сирота).
+    if (!rt(sc.id).needsCommit){
+      try {
+        await state.client.putFileSmall("scenes.json", serializeScenes(state.scenes),
+          "Додано сцену «" + sc.name + "» до scenes.json");
+        state.dirty = false; updateDirtyDot();
+        toast("Сцену збережено в архів. Вирівнюй її — зміни зберігай кнопкою «Зберегти в архів».", "ok", 9000);
+      } catch (err) {
+        toastError(err);
+        toast("Файл є в репо, але scenes.json не оновився — натисни «Зберегти в архів».", "error", 9000);
+      }
+    }
   } finally {
     hideProgress();
   }
@@ -911,7 +924,6 @@ async function commitSceneFile(sc){
     await state.client.putFile(sc.file, r.bytesCache, "Додано сцену «" + sc.name + "»",
       (f) => showProgress("Комічу " + sc.file + " · " + fmtPct(f), f));
     r.needsCommit = false; // байти лишаємо в кеші для авто-рівня/запікання
-    toast("Файл сцени закомічено. Вирівняй її і натисни «Зберегти в архів».", "ok", 8000);
   } catch (err) {
     toastError(err);
     toast("Файл сцени ще не в репозиторії — повторю спробу при «Зберегти в архів».", "error", 9000);
