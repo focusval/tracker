@@ -251,10 +251,21 @@ function refreshCalib(sc){
   $("#scaleVal").textContent = "×" + sc.scale.toFixed(2);
   $("#cropChk").checked = sc.crop.on;
   $("#cropBody").hidden = !sc.crop.on;
+  $("#cropInvert").checked = !!sc.crop.invert;
   refreshShapeButtons(sc);
   for (const c of cropRanges){
     $(c.r).value = sc.crop[c.k];
     $(c.l).textContent = c.fmt(sc.crop[c.k]);
+  }
+}
+
+// Червоний контур = режим видалення; жовтий = звичайна обрізка.
+function refreshCropColor(sc){
+  const del = !!(sc && sc.crop.invert);
+  const col = del ? "#d4574b" : "#e5a13c";
+  for (const [layerId, prop] of [["crop-ellipse-fill", "fill-color"],
+      ["crop-grid", "line-color"], ["crop-ellipse-line", "line-color"]]){
+    if (map.getLayer(layerId)) map.setPaintProperty(layerId, prop, col);
   }
 }
 
@@ -309,6 +320,16 @@ function wireCalib(){
     $("#cropBody").hidden = !sc.crop.on;
     layer.setCrop(sc.id, sc.crop);
     markDirty(); updateEllipse(sc);
+  });
+  $("#cropInvert").addEventListener("change", () => {
+    const sc = selected(); if (!sc) return;
+    pushHistory(sc);
+    sc.crop.invert = $("#cropInvert").checked;
+    layer.setCrop(sc.id, sc.crop);
+    markDirty(); updateEllipse(sc);
+    toast(sc.crop.invert
+      ? "Режим видалення: сплати ВСЕРЕДИНІ фігури зникнуть. Обведи зайве і натисни «Запекти зміни назавжди»."
+      : "Звичайна обрізка: лишається те, що всередині фігури.", "info", 6000);
   });
   for (const btn of document.querySelectorAll(".shape-btn")){
     btn.addEventListener("click", () => {
@@ -404,16 +425,20 @@ function lngLatToMeters(sc, ll){
   };
 }
 
-// точка в crop-локальних координатах (bx схід, by північ) з поворотом rot → lng/lat
+// точка в crop-локальних координатах (bx схід, by північ) відносно ЦЕНТРУ
+// фігури (ox,oy), з поворотом rot → lng/lat
 function cropLocalToLngLat(sc, bx, by){
   const a = (sc.crop.rot || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
-  return metersToLngLat(sc, c*bx - s*by, s*bx + c*by);
+  const ox = sc.crop.ox || 0, oy = sc.crop.oy || 0;
+  return metersToLngLat(sc, ox + c*bx - s*by, oy + s*bx + c*by);
 }
-// зворотне: точка на карті → crop-локальні координати (з урахуванням rot)
+// зворотне: точка на карті → crop-локальні координати (відносно центру, з rot)
 function lngLatToCropLocal(sc, ll){
   const m = lngLatToMeters(sc, ll);
+  const ox = sc.crop.ox || 0, oy = sc.crop.oy || 0;
+  const de = m.e - ox, dn = m.n - oy;
   const a = -(sc.crop.rot || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
-  return { x: c*m.e - s*m.n, y: s*m.e + c*m.n };
+  return { x: c*de - s*dn, y: s*de + c*dn };
 }
 
 // Контур обрізки (полігон) + внутрішня сітка, з урахуванням повороту rot.
@@ -462,8 +487,14 @@ function cropGeoJSON(sc){
   return { type: "FeatureCollection", features };
 }
 
-const clampR = (v) => Math.max(5, Math.min(500, Math.round(v)));
-let handleE = null, handleN = null, handleRot = null; // ручки на карті
+const MIN_HALF = 5;    // мінімальна півсторона/радіус, м
+const MAX_HALF = 2000; // максимальна півсторона/радіус, м — велика територія
+const clampR = (v) => Math.max(MIN_HALF, Math.min(MAX_HALF, Math.round(v)));
+
+// Ручки на карті. Для еліпса — 2 радіуси (E,N); для прямокутника — 4 незалежні
+// сторони (E,W,N,S), кожна тягне лише свій край; + поворот (rot).
+let cropHandles = {};        // role -> maplibregl.Marker
+let cropHandlesShape = null; // форма, під яку зібрані ручки
 
 function makeHandle(label, cls){
   const el = document.createElement("div");
@@ -472,68 +503,107 @@ function makeHandle(label, cls){
   return new maplibregl.Marker({ element: el, draggable: true });
 }
 
+function removeCropHandles(){
+  for (const k in cropHandles) if (cropHandles[k]) cropHandles[k].remove();
+  cropHandles = {};
+  cropHandlesShape = null;
+}
+
+// позиція ручки ролі в crop-локальних координатах (bx схід, by північ від центру)
+function handleLocalPos(sc, role){
+  const rx = sc.crop.rx, ry = sc.crop.ry, rotOff = Math.max(15, ry * 0.25);
+  if (role === "e") return [rx, 0];
+  if (role === "w") return [-rx, 0];
+  if (role === "n") return [0, ry];
+  if (role === "s") return [0, -ry];
+  if (role === "rot") return [0, ry + rotOff];
+  return null;
+}
+
+function syncHandlePositions(sc, skipRole){
+  for (const role in cropHandles){
+    if (role === skipRole) continue;
+    const p = handleLocalPos(sc, role);
+    if (p) cropHandles[role].setLngLat(cropLocalToLngLat(sc, p[0], p[1]));
+  }
+}
+
 function syncHandles(sc){
   const show = sc && sc.crop.on && state.editing;
-  if (!show){
-    for (const h of [handleE, handleN, handleRot]) if (h) h.remove();
-    handleE = handleN = handleRot = null;
-    return;
-  }
-  // ВАЖЛИВО: setLngLat ПЕРЕД addTo — MapLibre в addTo одразу читає координату,
-  // і маркер без неї кидає виняток, який ламає обробку рухів карти (зависання)
-  if (!handleE){
-    handleE = makeHandle("↔").setLngLat(cropLocalToLngLat(sc, sc.crop.rx, 0)).addTo(map);
-    handleE.on("dragstart", () => beginGesture(selected()));
-    handleE.on("drag", () => {
-      const s = selected(); if (!s) return;
-      s.crop.rx = clampR(Math.abs(lngLatToCropLocal(s, handleE.getLngLat()).x));
-      cropChangedLive(s);
-    });
-    handleE.on("dragend", () => { endGesture(); const s = selected(); if (s) syncHandlePositions(s); });
-  }
-  if (!handleN){
-    handleN = makeHandle("↕").setLngLat(cropLocalToLngLat(sc, 0, sc.crop.ry)).addTo(map);
-    handleN.on("dragstart", () => beginGesture(selected()));
-    handleN.on("drag", () => {
-      const s = selected(); if (!s) return;
-      s.crop.ry = clampR(Math.abs(lngLatToCropLocal(s, handleN.getLngLat()).y));
-      cropChangedLive(s);
-    });
-    handleN.on("dragend", () => { endGesture(); const s = selected(); if (s) syncHandlePositions(s); });
-  }
-  if (!handleRot){
-    handleRot = makeHandle("⟳", "rot")
-      .setLngLat(cropLocalToLngLat(sc, 0, sc.crop.ry + Math.max(15, sc.crop.ry * 0.25))).addTo(map);
-    handleRot.on("dragstart", () => beginGesture(selected()));
-    handleRot.on("drag", () => {
-      const s = selected(); if (!s) return;
-      const m = lngLatToMeters(s, handleRot.getLngLat());
-      // напрям на ручку задає локальну вісь «північ» обрізки: rot = atan2(-e, n)
-      s.crop.rot = Math.round(Math.atan2(-m.e, m.n) * 180 / Math.PI);
-      layer.setCrop(s.id, s.crop);
-      const src = map.getSource("crop-ellipse"); if (src) src.setData(cropGeoJSON(s));
-      $("#cropRot").value = s.crop.rot; $("#cropRotVal").textContent = s.crop.rot + "°";
-      markDirty();
-    });
-    handleRot.on("dragend", () => { endGesture(); const s = selected(); if (s) syncHandlePositions(s); });
+  if (!show){ removeCropHandles(); return; }
+  const roles = sc.crop.shape === "rect" ? ["e", "w", "n", "s", "rot"] : ["e", "n", "rot"];
+  if (cropHandlesShape !== sc.crop.shape){
+    removeCropHandles();
+    cropHandlesShape = sc.crop.shape;
+    for (const role of roles){
+      const label = role === "rot" ? "⟳" : (role === "e" || role === "w") ? "↔" : "↕";
+      const p = handleLocalPos(sc, role);
+      // ВАЖЛИВО: setLngLat ПЕРЕД addTo — інакше MapLibre кидає виняток на addTo
+      const h = makeHandle(label, role === "rot" ? "rot" : "")
+        .setLngLat(cropLocalToLngLat(sc, p[0], p[1])).addTo(map);
+      h.on("dragstart", () => beginGesture(selected()));
+      h.on("drag", () => onHandleDrag(role));
+      h.on("dragend", () => { endGesture(); const s = selected(); if (s) syncHandlePositions(s); });
+      cropHandles[role] = h;
+    }
   }
   syncHandlePositions(sc);
 }
 
-function syncHandlePositions(sc){
-  if (handleE) handleE.setLngLat(cropLocalToLngLat(sc, sc.crop.rx, 0));
-  if (handleN) handleN.setLngLat(cropLocalToLngLat(sc, 0, sc.crop.ry));
-  if (handleRot) handleRot.setLngLat(cropLocalToLngLat(sc, 0, sc.crop.ry + Math.max(15, sc.crop.ry * 0.25)));
+// Перетягування ручки. Для прямокутних сторін рухаємо лише той край, тримаючи
+// протилежний на місці (перераховуємо півсторону rx/ry і зсув центру ox/oy).
+function onHandleDrag(role){
+  const s = selected(); if (!s) return;
+  const h = cropHandles[role]; if (!h) return;
+  if (role === "rot"){
+    const m = lngLatToMeters(s, h.getLngLat());
+    const ox = s.crop.ox || 0, oy = s.crop.oy || 0;
+    // напрям від центру на ручку задає локальну «північ» фігури: rot = atan2(-e,n)
+    s.crop.rot = Math.round(Math.atan2(-(m.e - ox), (m.n - oy)) * 180 / Math.PI);
+    cropChangedLive(s, role);
+    return;
+  }
+  const loc = lngLatToCropLocal(s, h.getLngLat()); // (x,y) від центру, у осях фігури
+  const a = (s.crop.rot || 0) * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a);
+  // зсув центру на dl уздовж локальної осі x (схід фігури) або y (північ фігури)
+  const shiftX = (dl) => { s.crop.ox = (s.crop.ox || 0) + dl * c;   s.crop.oy = (s.crop.oy || 0) + dl * sn; };
+  const shiftY = (dl) => { s.crop.ox = (s.crop.ox || 0) + dl * (-sn); s.crop.oy = (s.crop.oy || 0) + dl * c; };
+
+  if (s.crop.shape !== "rect"){
+    // еліпс: симетричні радіуси, центр не рухається
+    if (role === "e") s.crop.rx = clampR(Math.abs(loc.x));
+    else if (role === "n") s.crop.ry = clampR(Math.abs(loc.y));
+    cropChangedLive(s, role);
+    return;
+  }
+  const rx = s.crop.rx, ry = s.crop.ry;
+  if (role === "e" || role === "w"){
+    let fixed, moving; // краї вздовж осі x (у локальних координатах): -rx..+rx
+    if (role === "e"){ fixed = -rx; moving = Math.max(loc.x, fixed + 2*MIN_HALF); }
+    else { fixed = rx; moving = Math.min(loc.x, fixed - 2*MIN_HALF); }
+    let nrx = Math.abs(moving - fixed) / 2, cx = (moving + fixed) / 2;
+    if (nrx > MAX_HALF){ nrx = MAX_HALF; cx = fixed + (moving > fixed ? nrx : -nrx); }
+    shiftX(cx); s.crop.rx = Math.round(nrx);
+  } else {
+    let fixed, moving;
+    if (role === "n"){ fixed = -ry; moving = Math.max(loc.y, fixed + 2*MIN_HALF); }
+    else { fixed = ry; moving = Math.min(loc.y, fixed - 2*MIN_HALF); }
+    let nry = Math.abs(moving - fixed) / 2, cy = (moving + fixed) / 2;
+    if (nry > MAX_HALF){ nry = MAX_HALF; cy = fixed + (moving > fixed ? nry : -nry); }
+    shiftY(cy); s.crop.ry = Math.round(nry);
+  }
+  cropChangedLive(s, role);
 }
 
-// живе оновлення під час перетягування ручки: рендер, контур, слайдери
-function cropChangedLive(sc){
+// живе оновлення під час перетягування ручки: рендер, контур, слайдери, інші ручки
+function cropChangedLive(sc, activeRole){
   layer.setCrop(sc.id, sc.crop);
   const src = map.getSource("crop-ellipse");
   if (src) src.setData(cropGeoJSON(sc));
   $("#cropRx").value = sc.crop.rx; $("#cropRxVal").textContent = sc.crop.rx + " м";
   $("#cropRy").value = sc.crop.ry; $("#cropRyVal").textContent = sc.crop.ry + " м";
-  if (handleRot) handleRot.setLngLat(cropLocalToLngLat(sc, 0, sc.crop.ry + Math.max(15, sc.crop.ry * 0.25)));
+  $("#cropRot").value = sc.crop.rot; $("#cropRotVal").textContent = sc.crop.rot + "°";
+  syncHandlePositions(sc, activeRole); // усі ручки, крім активної, слідують за фігурою
   markDirty();
 }
 
@@ -543,6 +613,7 @@ function updateEllipse(sc){
     if (sc && sc.crop.on) src.setData(cropGeoJSON(sc));
     else src.setData({ type: "FeatureCollection", features: [] });
   }
+  refreshCropColor(sc);
   syncHandles(sc && sc.crop.on ? sc : null);
 }
 
@@ -1016,7 +1087,9 @@ async function autoLevelScene(sc){
   const bytes = await sceneBytes(sc, "Завантажую сцену для аналізу");
   showProgress("Шукаю площину землі…");
   const data = parseSplatFile(bytes);
-  const est = estimateLevel(data.pos, data.count, sc, sc.crop.on ? sc.crop : null);
+  // авто-рівень аналізує сплати ВСЕРЕДИНІ фігури, тож ігноруємо invert
+  const cropForLevel = sc.crop.on ? { ...sc.crop, invert: false } : null;
+  const est = estimateLevel(data.pos, data.count, sc, cropForLevel);
   hideProgress();
   if (!est){
     toast("Замало сплатів для аналізу (можливо, обрізка відсікає майже все).", "error");
@@ -1076,7 +1149,8 @@ async function bakeScene(sc){
   const hasCrop = sc.crop.on;
   const hasErase = e.mask && e.mask.some((v) => v);
   if (!hasCrop && !hasErase){ toast("Немає що запікати — увімкни обрізку або зітри щось гумкою.", "info"); return; }
-  const what = hasCrop && hasErase ? "обрізку і стирання" : hasCrop ? "обрізку" : "стирання";
+  const cropWord = sc.crop.invert ? "видалення області" : "обрізку";
+  const what = hasCrop && hasErase ? (cropWord + " і стирання") : hasCrop ? cropWord : "стирання";
   if (!confirm("Запекти " + what + " назавжди? Оригінал буде збережено поруч як " +
     sc.file.replace(/\.splat$/, ".orig.splat") + ".")) return;
 
@@ -1114,6 +1188,8 @@ async function bakeScene(sc){
   sc.v = (sc.v || 0) + 1;
   sc.crop.on = false;
   sc.crop.baked = true;
+  // після запікання скидаємо фігуру в нейтральний стан
+  sc.crop.invert = false; sc.crop.ox = 0; sc.crop.oy = 0;
   // маска, історія й точки прив'язки скидаються — вони вже враховані у файлі
   e.mask = null; e.history = []; e.redo = []; e.align = [];
   e.eraseMode = false;

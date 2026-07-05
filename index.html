@@ -130,15 +130,18 @@
                   <button type="button" class="shape-btn" data-shape="ellipse">◯ Коло/еліпс</button>
                   <button type="button" class="shape-btn" data-shape="rect">▭ Прямокутник</button>
                 </div>
-                <p class="hint">Межі тягни на карті за ручки ↔ ↕, поворот — за ручку ⟳. Небо зрізай «Висота до», туман — «Висота від».</p>
+                <label class="check crop-invert">
+                  <input id="cropInvert" type="checkbox"> 🗑 Видаляти сплати ВСЕРЕДИНІ фігури (а не лишати)
+                </label>
+                <p class="hint">Прямокутник тягнеться за кожну сторону окремо (4 ручки ↔ ↕). Поворот — за ручку ⟳. Небо зрізай «Висота до», туман — «Висота від». Щоб прибрати шматок — увімкни «видаляти всередині», обведи його і натисни «Запекти зміни назавжди».</p>
                 <label class="field">Поворот фігури <output id="cropRotVal"></output>
                   <input id="cropRot" type="range" min="-180" max="180" step="1">
                 </label>
                 <label class="field"><span id="cropRxLabel">Радіус схід–захід</span> <output id="cropRxVal"></output>
-                  <input id="cropRx" type="range" min="5" max="500" step="5">
+                  <input id="cropRx" type="range" min="5" max="2000" step="5">
                 </label>
                 <label class="field"><span id="cropRyLabel">Радіус північ–південь</span> <output id="cropRyVal"></output>
-                  <input id="cropRy" type="range" min="5" max="500" step="5">
+                  <input id="cropRy" type="range" min="5" max="2000" step="5">
                 </label>
                 <label class="field">Висота від <output id="cropHminVal"></output>
                   <input id="cropHmin" type="range" min="-50" max="200" step="1">

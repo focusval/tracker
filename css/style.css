@@ -196,7 +196,7 @@ body.editing #editBtn { border-color: var(--accent); color: var(--accent); }
 .edit-panel { display: none; border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 12px; }
 body.editing .edit-panel { display: block; }
 
-/* ручки зміни радіусів обрізки прямо на карті */
+/* ручки зміни меж обрізки прямо на карті */
 .crop-handle {
   width: 34px; height: 34px;
   border-radius: 50%;
@@ -260,6 +260,16 @@ body.editing .edit-panel { display: block; }
 .shape-row { display: flex; gap: 8px; margin: 8px 0; }
 .shape-btn { flex: 1; }
 .shape-btn.active { background: var(--accent); border-color: var(--accent); color: #10151a; font-weight: 600; }
+
+/* перемикач «видаляти всередині» — небезпечна дія, тонований контейнер */
+.crop-invert {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 12px;
+  margin: 10px 0;
+}
+.crop-invert input:checked ~ * , .crop-invert:has(input:checked) { color: var(--danger); }
+.crop-invert input { accent-color: var(--danger); }
 
 /* гумка */
 #eraseBtn { width: 100%; }

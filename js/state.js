@@ -44,8 +44,15 @@ export function normalizeScenes(json){
       rot: num(s.crop && s.crop.rot, 0),
       rx: num(s.crop && s.crop.rx, 100),
       ry: num(s.crop && s.crop.ry, 100),
+      // зсув центру фігури в метрах (схід/північ) — дає незалежні сторони
+      // прямокутника. Дефолт 0 → фігура центрована на якорі (стара поведінка).
+      ox: num(s.crop && s.crop.ox, 0),
+      oy: num(s.crop && s.crop.oy, 0),
       hmin: num(s.crop && s.crop.hmin, -50),
       hmax: num(s.crop && s.crop.hmax, 200),
+      // invert=true → фігура ВИДАЛЯЄ сплати всередині (замість лишати). Дефолт
+      // false → стара поведінка (лишати всередині).
+      invert: !!(s.crop && s.crop.invert),
       baked: !!(s.crop && s.crop.baked),
     },
   })).filter((s) => s.file);
@@ -62,7 +69,8 @@ export function serializeScenes(scenes){
       scale: s.scale, visible: s.visible,
       count: s.count, size: s.size, v: s.v,
       crop: { on: s.crop.on, shape: s.crop.shape, rot: s.crop.rot, rx: s.crop.rx, ry: s.crop.ry,
-              hmin: s.crop.hmin, hmax: s.crop.hmax, baked: s.crop.baked },
+              ox: s.crop.ox, oy: s.crop.oy,
+              hmin: s.crop.hmin, hmax: s.crop.hmax, invert: s.crop.invert, baked: s.crop.baked },
     })),
   }, null, 2);
 }
