@@ -222,7 +222,8 @@ body.editing .edit-panel { display: block; }
 #eraseBtn { width: 100%; }
 #eraseBtn.active { background: var(--accent); border-color: var(--accent); color: #10151a; font-weight: 600; }
 .erase-count { color: var(--accent); font-variant-numeric: tabular-nums; }
-body.erasing .maplibregl-canvas { cursor: crosshair; }
+body.erasing .maplibregl-canvas { cursor: crosshair; touch-action: none; }
+body.erasing .maplibregl-canvas-container { touch-action: none; }
 
 .calib-head-btns { display: flex; gap: 6px; }
 #undoBtn:disabled { opacity: .4; }
