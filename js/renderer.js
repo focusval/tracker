@@ -1,8 +1,8 @@
 // Рендерер гаусових сплатів: кастомний WebGL2-шар MapLibre.
 // Дані сплатів — у текстурі RGBA32UI (2 текселі/сплат), інстансинг квадів
-// TRIANGLE_STRIP, екранна 2D-коваріація через скінченні різниці від повної MVP,
+// TRIANGLE_STRIP, екранна 2D-коваріація через аналітичний якобіан повної MVP,
 // сортування back-to-front у воркері, premultiplied alpha поверх карти.
-// Шейдери та математика — перевірена референсна реалізація, не змінювати.
+// Шейдери та математика — перевірена реалізація, не змінювати без причини.
 
 import { mat4mul, buildTexData, rotationFromEuler } from "./gsmath.js";
 
@@ -47,7 +47,12 @@ void main() {
   vec4 cy = uMVP * vec4(p + vec3(0.,1.,0.), 1.0);
   vec4 cz = uMVP * vec4(p + vec3(0.,0.,1.), 1.0);
   vec2 hv = 0.5 * uViewport;
-  mat3x2 A = mat3x2((cx.xy/cx.w - ndc)*hv, (cy.xy/cy.w - ndc)*hv, (cz.xy/cz.w - ndc)*hv);
+  // Аналітичний якобіан проєкції (границя скінченної різниці при кроці -> 0):
+  // ділимо лише на c0.w (> 0, перевірено вище). Стара скінченна різниця ділила
+  // на cx.w/cy.w/cz.w, які на великих масштабах (крок = 1 локальна одиниця =
+  // сотні метрів) опинялись біля нуля чи за камерою -> гігантські квади на
+  // весь екран, GPU захлинався і сторінка зависала.
+  mat3x2 A = mat3x2((cx.xy - ndc*cx.w)/c0.w*hv, (cy.xy - ndc*cy.w)/c0.w*hv, (cz.xy - ndc*cz.w)/c0.w*hv);
   uvec4 t1 = texelFetch(uTex, ivec2(uv0.x | 1, uv0.y), 0);
   vec2 h1 = unpackHalf2x16(t1.x); vec2 h2 = unpackHalf2x16(t1.y); vec2 h3 = unpackHalf2x16(t1.z);
   mat3 V = mat3(h1.x,h1.y,h2.x, h1.y,h2.y,h3.x, h2.x,h3.x,h3.y);
@@ -154,8 +159,12 @@ export class SplatLayer {
   // crop — {on,rx,ry,hmin,hmax}. Дані після ініціалізації GL не зберігаються.
   addScene(id, data, params, visible, crop){
     this.removeScene(id);
+    // епоха захищає від застарілих відповідей воркера: після перезаливки сцени
+    // (запікання) сортування, запущене для старих даних, не має права
+    // виставити drawCount більший за нову кількість сплатів
+    this._epoch = (this._epoch || 0) + 1;
     const sc = {
-      id, count: data.count, data,
+      id, count: data.count, data, epoch: this._epoch,
       params: {...params},
       crop: crop ? {...crop} : {on:false, shape:"ellipse", rot:0, rx:100, ry:100, hmin:-50, hmax:200},
       visible: visible !== false,
@@ -336,7 +345,7 @@ export class SplatLayer {
 
   _onSorted(msg){
     const sc = this.scenes.get(msg.id);
-    if (!sc) return;
+    if (!sc || msg.epoch !== sc.epoch) return; // застаріла відповідь — ігноруємо
     sc.sorting = false;
     const gl = this.gl;
     if (!gl || !sc.indexBuf) return;
@@ -388,7 +397,7 @@ export class SplatLayer {
       if (!(diff/sum <= 1e-3) && !sc.sorting){ // NaN у lastRow також запускає сортування
         sc.sorting = true;
         L[0]=r0; L[1]=r1; L[2]=r2;
-        this.worker.postMessage({ type: "sort", id: sc.id, row: [r0, r1, r2] });
+        this.worker.postMessage({ type: "sort", id: sc.id, epoch: sc.epoch, row: [r0, r1, r2] });
       }
       gl.uniformMatrix4fv(this.u.mvp, false, mvp);
       gl.uniform1i(this.u.cropOn, sc.crop.on ? 1 : 0);

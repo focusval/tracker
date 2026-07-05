@@ -334,8 +334,10 @@ function wireCalib(){
       markDirty(); updateEllipse(sc);
     });
   }
-  // завершення жесту слайдера — глобально (миша/палець можуть відпуститись будь-де)
+  // завершення жесту слайдера — глобально (миша/палець можуть відпуститись будь-де;
+  // на телефоні жест може обірватись через pointercancel)
   window.addEventListener("pointerup", endGesture);
+  window.addEventListener("pointercancel", endGesture);
   window.addEventListener("keyup", endGesture);
 
   $("#eraseBtn").addEventListener("click", () => {
@@ -477,8 +479,10 @@ function syncHandles(sc){
     handleE = handleN = handleRot = null;
     return;
   }
+  // ВАЖЛИВО: setLngLat ПЕРЕД addTo — MapLibre в addTo одразу читає координату,
+  // і маркер без неї кидає виняток, який ламає обробку рухів карти (зависання)
   if (!handleE){
-    handleE = makeHandle("↔").addTo(map);
+    handleE = makeHandle("↔").setLngLat(cropLocalToLngLat(sc, sc.crop.rx, 0)).addTo(map);
     handleE.on("dragstart", () => beginGesture(selected()));
     handleE.on("drag", () => {
       const s = selected(); if (!s) return;
@@ -488,7 +492,7 @@ function syncHandles(sc){
     handleE.on("dragend", () => { endGesture(); const s = selected(); if (s) syncHandlePositions(s); });
   }
   if (!handleN){
-    handleN = makeHandle("↕").addTo(map);
+    handleN = makeHandle("↕").setLngLat(cropLocalToLngLat(sc, 0, sc.crop.ry)).addTo(map);
     handleN.on("dragstart", () => beginGesture(selected()));
     handleN.on("drag", () => {
       const s = selected(); if (!s) return;
@@ -498,7 +502,8 @@ function syncHandles(sc){
     handleN.on("dragend", () => { endGesture(); const s = selected(); if (s) syncHandlePositions(s); });
   }
   if (!handleRot){
-    handleRot = makeHandle("⟳", "rot").addTo(map);
+    handleRot = makeHandle("⟳", "rot")
+      .setLngLat(cropLocalToLngLat(sc, 0, sc.crop.ry + Math.max(15, sc.crop.ry * 0.25))).addTo(map);
     handleRot.on("dragstart", () => beginGesture(selected()));
     handleRot.on("drag", () => {
       const s = selected(); if (!s) return;
