@@ -675,8 +675,9 @@ function enterAlign(){
   map.dragPan.disable();
   $("#alignBtn").classList.add("active");
   $("#alignBtn").textContent = "Прив'язка: тапни точку на СПЛАТі";
+  renderAlignMarkers(sc); // показати вже поставлені пари (якщо повертаємось)
   updateAlignInfo(sc);
-  toast("Тапни характерну точку на сплаті (ріг будинку, перехрестя), потім — те саме місце на супутниковій карті. Треба ≥3 пари.", "info", 9000);
+  toast("Тапни характерну точку на сплаті (ріг будинку, перехрестя), потім — те саме місце на супутниковій карті. Треба ≥3 пари. Помилкову точку можна прибрати — тапни по ній ще раз.", "info", 9000);
 }
 
 function exitAlign(){
@@ -697,11 +698,54 @@ function clearAlignMarkers(){
   if (src) src.setData({ type: "FeatureCollection", features: [] });
 }
 
-function alignBadge(num, kind){
+function alignBadge(num, kind, onClick){
   const el = document.createElement("div");
   el.className = "align-badge " + kind;
   el.textContent = num;
+  el.style.cursor = "pointer";
+  if (onClick){
+    // тап по бейджу прибирає точку; stopPropagation, щоб клік не пішов і в карту
+    const handler = (ev) => { ev.stopPropagation(); ev.preventDefault(); onClick(); };
+    el.addEventListener("click", handler);
+  }
   return new maplibregl.Marker({ element: el });
+}
+
+// Перемальовує всі маркери пар із наскрізною нумерацією і хендлером «прибрати».
+// Викликати після будь-якої зміни складу пар.
+function renderAlignMarkers(sc){
+  for (const m of alignMarkers) m.remove();
+  alignMarkers.length = 0;
+  const pairs = alignRec(sc);
+  pairs.forEach((p, i) => {
+    const num = i + 1;
+    const sm = alignBadge(num, "src", () => removeAlignPair(sc, p)).setLngLat(p.srcLngLat).addTo(map);
+    const dm = alignBadge(num, "dst", () => removeAlignPair(sc, p)).setLngLat(p.dst).addTo(map);
+    p.srcMarker = sm; p.dstMarker = dm;
+    alignMarkers.push(sm, dm);
+  });
+  refreshAlignLines(sc);
+}
+
+// Прибрати конкретну пару (тап по її точці) і перенумерувати решту.
+function removeAlignPair(sc, pair){
+  const arr = alignRec(sc);
+  const i = arr.indexOf(pair);
+  if (i < 0) return;
+  arr.splice(i, 1);
+  renderAlignMarkers(sc);
+  updateAlignInfo(sc);
+  toast("Пару точок прибрано.", "info", 2500);
+}
+
+// Скасувати ще не завершену точку-джерело (тап по ній до вибору цілі).
+function cancelPendingSrc(){
+  if (!alignPending) return;
+  if (alignPending.srcMarker) alignPending.srcMarker.remove();
+  alignPending = null;
+  alignMode = "awaitSrc";
+  $("#alignBtn").textContent = "Прив'язка: тапни точку на СПЛАТі";
+  toast("Точку-джерело прибрано.", "info", 2500);
 }
 
 function refreshAlignLines(sc){
@@ -728,15 +772,13 @@ function onAlignClick(e){
     layer.pickSplat(sc.id, e.point.x, e.point.y, "align");
   } else if (alignMode === "awaitDst" && alignPending){
     const pair = { src: alignPending.pos, srcLngLat: alignPending.srcLngLat, dst: [e.lngLat.lng, e.lngLat.lat] };
-    const num = alignRec(sc).length + 1;
-    alignRec(sc).push(pair);
-    // маркер цілі на карті
-    const dm = alignBadge(num, "dst").setLngLat(pair.dst).addTo(map);
-    alignMarkers.push(dm, alignPending.srcMarker);
+    // прибрати тимчасовий маркер-джерело; renderAlignMarkers намалює нумеровану пару
+    if (alignPending.srcMarker) alignPending.srcMarker.remove();
     alignPending = null;
+    alignRec(sc).push(pair);
     alignMode = "awaitSrc";
     $("#alignBtn").textContent = "Прив'язка: тапни точку на СПЛАТі";
-    refreshAlignLines(sc);
+    renderAlignMarkers(sc);
     updateAlignInfo(sc);
   }
 }
@@ -748,11 +790,12 @@ function onPickResult(id, tag, pos){
   if (!pos){ toast("Тут немає сплата — цілься в саму сцену.", "error"); return; }
   const lngLat = layer.localToLngLat(id, pos);
   const num = alignRec(sc).length + 1;
-  const sm = alignBadge(num, "src").setLngLat(lngLat).addTo(map);
+  // тап по цій точці до вибору цілі — скасовує її
+  const sm = alignBadge(num, "src", cancelPendingSrc).setLngLat(lngLat).addTo(map);
   alignPending = { pos, srcLngLat: lngLat, srcMarker: sm };
   alignMode = "awaitDst";
   $("#alignBtn").textContent = "Прив'язка: тапни ЦІЛЬ на карті";
-  toast("Тепер тапни на карті, куди має стати ця точка.", "info", 6000);
+  toast("Тепер тапни на карті, куди має стати ця точка. Помилка? Тапни цю точку-джерело ще раз, щоб прибрати.", "info", 6000);
 }
 
 function applyAlign(){
@@ -763,11 +806,24 @@ function applyAlign(){
   const mPerLng = 111320 * Math.cos(sc.lat * D), mPerLat = 110540;
   // джерело: горизонталь локальної точки після лише вирівнювання (без scale/rz/anchor)
   const srcPts = [], dstPts = [], ups = [];
+  let moveSum = 0;
   for (const p of pairs){
     const h = levelHorizontal(p.src, sc.rx, sc.ry);
     srcPts.push({ x: h.e, y: h.n });
     ups.push(h.u);
     dstPts.push({ x: (p.dst[0] - sc.lng) * mPerLng, y: (p.dst[1] - sc.lat) * mPerLat });
+    // на скільки метрів ціль зміщено від поточного положення цього сплата на карті
+    if (p.srcLngLat){
+      const de = (p.dst[0] - p.srcLngLat[0]) * mPerLng, dn = (p.dst[1] - p.srcLngLat[1]) * mPerLat;
+      moveSum += Math.hypot(de, dn);
+    }
+  }
+  // Якщо цілі стоять майже там, де сплати вже є, накладати нема куди —
+  // сцена «стоїть на місці». Це найчастіша причина скарги: ціль тапнули по
+  // самому сплату. Пояснюємо явно і не робимо порожнього «накладання».
+  if (moveSum / pairs.length < 1){
+    toast("Цілі стоять майже там, де сплати вже є, тож рухати нема куди. Постав ціль на КАРТІ там, де реально має бути ця точка (а не по самому сплату), і повтори.", "error", 11000);
+    return;
   }
   let sim;
   try { sim = similarity2D(srcPts, dstPts); }
