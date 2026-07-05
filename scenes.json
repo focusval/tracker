@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-05T17:20:21.948Z",
+  "updated": "2026-07-05T17:24:13.161Z",
   "scenes": [
     {
       "id": "smr7u8ix7",
@@ -153,6 +153,58 @@
         "rot": -15,
         "rx": 500,
         "ry": 500,
+        "hmin": -50,
+        "hmax": 200,
+        "baked": false
+      }
+    },
+    {
+      "id": "smr824mc0",
+      "name": "gs_Sever_5",
+      "file": "scenes/smr824mc0.splat",
+      "lng": 38.528912761757255,
+      "lat": 48.9503532736299,
+      "alt": 92,
+      "rx": 88,
+      "ry": -3,
+      "rz": 0,
+      "scale": 197.5922900806568,
+      "visible": true,
+      "count": 1166255,
+      "size": 37320160,
+      "v": 0,
+      "crop": {
+        "on": true,
+        "shape": "ellipse",
+        "rot": 104,
+        "rx": 17,
+        "ry": 9,
+        "hmin": -50,
+        "hmax": 200,
+        "baked": false
+      }
+    },
+    {
+      "id": "smr82906f",
+      "name": "gs_Sever_16_shc",
+      "file": "scenes/smr82906f.splat",
+      "lng": 38.5287713246596,
+      "lat": 48.95049799561704,
+      "alt": 88.5,
+      "rx": -88,
+      "ry": 0,
+      "rz": 0,
+      "scale": 100.24764918461578,
+      "visible": true,
+      "count": 1100695,
+      "size": 35222240,
+      "v": 0,
+      "crop": {
+        "on": false,
+        "shape": "ellipse",
+        "rot": 0,
+        "rx": 100,
+        "ry": 100,
         "hmin": -50,
         "hmax": 200,
         "baked": false
