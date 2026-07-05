@@ -957,6 +957,21 @@ async function autoLevelScene(sc){
 
 async function saveArchive(){
   if (!state.client){ showTokenForm(); return; }
+  // Запобіжник від втрати даних: не затирати непорожній архів порожнім списком
+  // без явного підтвердження (саме так конфіг колись обнулився).
+  if (state.scenes.length === 0){
+    let remoteHas = false;
+    try {
+      const cur = await state.client.getRawFile("scenes.json");
+      const j = JSON.parse(new TextDecoder().decode(cur));
+      remoteHas = Array.isArray(j.scenes) && j.scenes.length > 0;
+    } catch { /* немає файлу або не читається — тоді порожній зберегти можна */ }
+    if (remoteHas && !confirm("Список сцен зараз порожній, а в архіві є збережені сцени. Зберегти ПОРОЖНІЙ список? Це прибере всі сцени з карти (файли сплатів у scenes/ лишаться).")){
+      hideProgress();
+      toast("Скасовано — порожній scenes.json не збережено.", "info");
+      return;
+    }
+  }
   for (const sc of state.scenes)
     if (rt(sc.id).needsCommit) await commitSceneFile(sc);
   const pending = state.scenes.filter((sc) => rt(sc.id).needsCommit);

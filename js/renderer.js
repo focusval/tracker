@@ -343,20 +343,8 @@ export class SplatLayer {
     gl.bindBuffer(gl.ARRAY_BUFFER, sc.indexBuf);
     gl.bufferData(gl.ARRAY_BUFFER, msg.index, gl.DYNAMIC_DRAW);
     sc.drawCount = msg.index.length;
-    // якщо камера рухалась, поки йшло сортування — одразу запускаємо наступне,
-    // не чекаючи кадру: порядок не відстає від руху
-    if (this.lastMatrix){
-      const mvp = mat4mul(this.lastMatrix, sc.model);
-      const r0 = mvp[3], r1 = mvp[7], r2 = mvp[11];
-      const L = sc.lastRow;
-      const diff = Math.abs(r0-L[0]) + Math.abs(r1-L[1]) + Math.abs(r2-L[2]);
-      const sum = Math.abs(r0) + Math.abs(r1) + Math.abs(r2);
-      if (!(diff/sum <= 3e-4)){
-        sc.sorting = true;
-        L[0]=r0; L[1]=r1; L[2]=r2;
-        this.worker.postMessage({ type: "sort", id: sc.id, row: [r0, r1, r2] });
-      }
-    }
+    // один repaint, щоб показати новий порядок. Без ланцюгового пересортування —
+    // воно перевантажувало телефон на великих сценах (сотні тисяч сплатів).
     if (this.map) this.map.triggerRepaint();
   }
 
@@ -395,9 +383,9 @@ export class SplatLayer {
       const L = sc.lastRow;
       const diff = Math.abs(r0-L[0]) + Math.abs(r1-L[1]) + Math.abs(r2-L[2]);
       const sum = Math.abs(r0) + Math.abs(r1) + Math.abs(r2);
-      // поріг нижчий за референсний 1e-3: порядок сплатів щільніше тримається
-      // за камерою, сцена не «пливе» при поворотах
-      if (!(diff/sum <= 3e-4) && !sc.sorting){ // NaN у lastRow також запускає сортування
+      // референсний поріг 1e-3 (перевірений на реальних сценах Luma): рідше
+      // пересортовує → не навантажує телефон. sum>0 у нормальній проєкції.
+      if (!(diff/sum <= 1e-3) && !sc.sorting){ // NaN у lastRow також запускає сортування
         sc.sorting = true;
         L[0]=r0; L[1]=r1; L[2]=r2;
         this.worker.postMessage({ type: "sort", id: sc.id, row: [r0, r1, r2] });
