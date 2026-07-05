@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-05T17:51:50.844Z",
+  "updated": "2026-07-05T19:18:42.553Z",
   "scenes": [
     {
       "id": "smr7u8ix7",
@@ -23,8 +23,11 @@
         "rot": 19,
         "rx": 500,
         "ry": 143,
+        "ox": 0,
+        "oy": 0,
         "hmin": -50,
         "hmax": 33,
+        "invert": false,
         "baked": false
       }
     },
@@ -49,8 +52,11 @@
         "rot": 158,
         "rx": 500,
         "ry": 500,
+        "ox": 0,
+        "oy": 0,
         "hmin": -50,
         "hmax": 13,
+        "invert": false,
         "baked": false
       }
     },
@@ -75,8 +81,11 @@
         "rot": 73,
         "rx": 500,
         "ry": 500,
+        "ox": 0,
+        "oy": 0,
         "hmin": -50,
         "hmax": 200,
+        "invert": false,
         "baked": false
       }
     },
@@ -101,8 +110,11 @@
         "rot": 0,
         "rx": 500,
         "ry": 500,
+        "ox": 0,
+        "oy": 0,
         "hmin": -50,
         "hmax": 200,
+        "invert": false,
         "baked": false
       }
     },
@@ -127,8 +139,11 @@
         "rot": 21,
         "rx": 500,
         "ry": 500,
+        "ox": 0,
+        "oy": 0,
         "hmin": -50,
         "hmax": 200,
+        "invert": false,
         "baked": false
       }
     },
@@ -153,34 +168,11 @@
         "rot": -15,
         "rx": 500,
         "ry": 500,
+        "ox": 0,
+        "oy": 0,
         "hmin": -50,
         "hmax": 200,
-        "baked": false
-      }
-    },
-    {
-      "id": "smr824mc0",
-      "name": "gs_Sever_5",
-      "file": "scenes/smr824mc0.splat",
-      "lng": 38.528912761757255,
-      "lat": 48.9503532736299,
-      "alt": 92,
-      "rx": 88,
-      "ry": -3,
-      "rz": 0,
-      "scale": 197.5922900806568,
-      "visible": true,
-      "count": 1166255,
-      "size": 37320160,
-      "v": 0,
-      "crop": {
-        "on": true,
-        "shape": "ellipse",
-        "rot": 104,
-        "rx": 17,
-        "ry": 9,
-        "hmin": -50,
-        "hmax": 200,
+        "invert": false,
         "baked": false
       }
     },
@@ -205,8 +197,11 @@
         "rot": -17,
         "rx": 500,
         "ry": 500,
+        "ox": 0,
+        "oy": 0,
         "hmin": -50,
         "hmax": 200,
+        "invert": false,
         "baked": false
       }
     },
@@ -231,8 +226,11 @@
         "rot": -71,
         "rx": 325,
         "ry": 161,
+        "ox": 0,
+        "oy": 0,
         "hmin": -50,
         "hmax": 200,
+        "invert": false,
         "baked": false
       }
     },
@@ -257,8 +255,11 @@
         "rot": 19,
         "rx": 500,
         "ry": 500,
+        "ox": 0,
+        "oy": 0,
         "hmin": -50,
         "hmax": 200,
+        "invert": false,
         "baked": false
       }
     }
