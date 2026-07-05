@@ -125,5 +125,5 @@ onmessage = (e) => {
     if (mask && mask[i]) continue;
     index[starts[size[i]]++] = i;
   }
-  postMessage({ id: d.id, index }, [index.buffer]);
+  postMessage({ id: d.id, epoch: d.epoch, index }, [index.buffer]);
 };
