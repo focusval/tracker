@@ -77,3 +77,59 @@ test("groundLevel: щільний шар землі під викидами", ()
   const g = groundLevel(vals);
   assert.ok(Math.abs(g - 3) < 1.5, `ground ${g}, очікував ≈3 (не тягнеться до викидів -10..-30)`);
 });
+
+// Round-trip повного накладання (контракт applyAlign): якщо цілі — це справжня
+// проєкція сплатів під відомим перетворенням (той самий rx/ry, що в сцені),
+// то similarity2D+levelHorizontal мають відновити масштаб, yaw і зсув так, що
+// сплати лягають РІВНО на цілі. Відтворює математику edit.js applyAlign без DOM.
+test("накладання по точках: сплати лягають рівно на цілі (round-trip)", () => {
+  const DEG = 180 / Math.PI;
+  // сцена вже вирівняна авто-рівнем: rx/ry фіксовані, align вирішує scale/rz/зсув
+  const rx = 7, ry = -4;
+  // «істинне» перетворення, яке ми маємо відновити
+  const trueScale = 12.5, trueRz = 63; // градуси
+  const lng0 = 38.49, lat0 = 48.94;
+  const D = Math.PI / 180;
+  const mPerLng = 111320 * Math.cos(lat0 * D), mPerLat = 110540;
+  // горизонтальна проєкція локальної точки під повним поворотом Rz·Ry·Rx (метри)
+  const project = (p) => {
+    const h = levelHorizontal(p, rx, ry);       // Ry·Rx
+    const a = trueRz * D, c = Math.cos(a), s = Math.sin(a);
+    return { e: trueScale * (c*h.e - s*h.n), n: trueScale * (s*h.e + c*h.n) };
+  };
+  const splats = [[3, 1, 0.2], [-2, 4, -0.5], [1, -3, 0.1], [5, 2, 0.3]];
+  // цілі на карті = істинна проєкція відносно якоря
+  const targets = splats.map((p) => {
+    const m = project(p);
+    return [lng0 + m.e / mPerLng, lat0 + m.n / mPerLat];
+  });
+
+  // --- те, що робить applyAlign, стартуючи з "сирої" сцени scale=1, rz=0 ---
+  const scLng = lng0, scLat = lat0;      // якір близько до цілей (як у реальному UI)
+  const srcPts = [], dstPts = [];
+  for (let i = 0; i < splats.length; i++){
+    const h = levelHorizontal(splats[i], rx, ry);
+    srcPts.push({ x: h.e, y: h.n });
+    dstPts.push({ x: (targets[i][0] - scLng) * mPerLng, y: (targets[i][1] - scLat) * mPerLat });
+  }
+  const sim = similarity2D(srcPts, dstPts);
+  const wrap180 = (v) => ((v + 180) % 360 + 360) % 360 - 180;
+  const newScale = sim.scale;
+  const newRz = wrap180(sim.angleDeg);
+  const newLng = scLng + sim.tx / mPerLng;
+  const newLat = scLat + sim.ty / mPerLat;
+
+  assert.ok(Math.abs(newScale - trueScale) < 1e-6, `scale ${newScale} != ${trueScale}`);
+  assert.ok(Math.abs(wrap180(newRz - trueRz)) < 1e-6, `rz ${newRz} != ${trueRz}`);
+  assert.ok(sim.rms < 1e-6, `rms ${sim.rms} завеликий`);
+
+  // головна перевірка: кожен сплат під ВІДНОВЛЕНИМ перетворенням лягає на ціль
+  for (let i = 0; i < splats.length; i++){
+    const h = levelHorizontal(splats[i], rx, ry);
+    const a = newRz * D, c = Math.cos(a), s = Math.sin(a);
+    const e = newScale * (c*h.e - s*h.n), n = newScale * (s*h.e + c*h.n);
+    const gotLng = newLng + e / mPerLng, gotLat = newLat + n / mPerLat;
+    const errM = Math.hypot((gotLng - targets[i][0]) * mPerLng, (gotLat - targets[i][1]) * mPerLat);
+    assert.ok(errM < 1e-3, `сплат ${i}: похибка ${errM} м завелика`);
+  }
+});
