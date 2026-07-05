@@ -45,14 +45,20 @@
         </div>
         <div class="tool-row">
           <button id="exportBtn" type="button">Експорт JSON</button>
+          <button id="exportMapBtn" type="button">Експорт карти (ZIP)</button>
+        </div>
+        <div class="tool-row">
           <button id="forgetBtn" type="button" class="ghost">Забути токен</button>
         </div>
-        <p class="hint">Додавай .ply (uncompressed із SuperSplat) або .splat. Файл конвертується у .splat і комітиться у scenes/. Понад 95 МБ GitHub не прийме.</p>
+        <p class="hint">Додавай .ply (uncompressed із SuperSplat) або .splat. Файл конвертується у .splat і комітиться у scenes/. Понад 95 МБ GitHub не прийме. «Експорт карти» збирає весь сайт зі сплатами в один ZIP.</p>
 
         <div id="calib" hidden>
           <div class="calib-head">
             <h3 id="calibTitle"></h3>
-            <button id="closeCalib" type="button" class="ghost">Згорнути</button>
+            <div class="calib-head-btns">
+              <button id="undoBtn" type="button" class="ghost" disabled>↶ Крок назад</button>
+              <button id="closeCalib" type="button" class="ghost">Згорнути</button>
+            </div>
           </div>
           <label class="field">Назва
             <input id="nameInput" type="text" autocomplete="off">
@@ -92,14 +98,18 @@
 
           <div class="crop-block">
             <label class="check">
-              <input id="cropChk" type="checkbox"> Обрізка (еліпс + висоти)
+              <input id="cropChk" type="checkbox"> Обрізка (форма + висоти)
             </label>
             <div id="cropBody" hidden>
-              <p class="hint">Межі можна тягнути прямо на карті за круглі ручки ↔ і ↕ на краю еліпса. Небо зрізай повзунком «Висота до», туман під землею — «Висота від».</p>
-              <label class="field">Радіус схід–захід <output id="cropRxVal"></output>
+              <div class="shape-row">
+                <button type="button" class="shape-btn" data-shape="ellipse">◯ Коло/еліпс</button>
+                <button type="button" class="shape-btn" data-shape="rect">▭ Прямокутник</button>
+              </div>
+              <p class="hint">Межі тягни прямо на карті за ручки ↔ і ↕ на краю фігури. Небо зрізай повзунком «Висота до», туман під землею — «Висота від».</p>
+              <label class="field"><span id="cropRxLabel">Радіус схід–захід</span> <output id="cropRxVal"></output>
                 <input id="cropRx" type="range" min="5" max="500" step="5">
               </label>
-              <label class="field">Радіус північ–південь <output id="cropRyVal"></output>
+              <label class="field"><span id="cropRyLabel">Радіус північ–південь</span> <output id="cropRyVal"></output>
                 <input id="cropRy" type="range" min="5" max="500" step="5">
               </label>
               <label class="field">Висота від <output id="cropHminVal"></output>
@@ -108,10 +118,20 @@
               <label class="field">Висота до <output id="cropHmaxVal"></output>
                 <input id="cropHmax" type="range" min="-50" max="200" step="1">
               </label>
-              <button id="bakeBtn" type="button" class="primary">Запекти обрізку назавжди</button>
-              <p class="hint">Оригінал збережеться поруч як *.orig.splat.</p>
             </div>
           </div>
+
+          <div class="crop-block">
+            <button id="eraseBtn" type="button">Гумка — стерти деталі</button>
+            <label class="field">Розмір пензля
+              <input id="eraseSize" type="range" min="8" max="80" step="2" value="24">
+            </label>
+            <p class="hint erase-count" id="eraseCount"></p>
+            <p class="hint">Увімкни гумку і малюй пальцем/мишкою по зайвих деталях — вони зникнуть. Карта на цей час не рухається. «Крок назад» скасовує мазок.</p>
+          </div>
+
+          <button id="bakeBtn" type="button" class="primary">Запекти зміни назавжди</button>
+          <p class="hint">Записує обрізку і стирання у файл (менший розмір). Оригінал збережеться поруч як *.orig.splat.</p>
 
           <button id="deleteBtn" type="button" class="danger">Видалити сцену…</button>
         </div>
