@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-05T16:49:46.151Z",
+  "updated": "2026-07-05T17:09:29.125Z",
   "scenes": [
     {
       "id": "smr7u8ix7",
@@ -101,6 +101,32 @@
         "rot": 0,
         "rx": 500,
         "ry": 500,
+        "hmin": -50,
+        "hmax": 200,
+        "baked": false
+      }
+    },
+    {
+      "id": "smr81q2gx",
+      "name": "gs_Sever_3",
+      "file": "scenes/smr81q2gx.splat",
+      "lng": 38.49552085811092,
+      "lat": 48.94705965626554,
+      "alt": 0,
+      "rx": 0,
+      "ry": 0,
+      "rz": 0,
+      "scale": 1,
+      "visible": true,
+      "count": 1083618,
+      "size": 34675776,
+      "v": 0,
+      "crop": {
+        "on": false,
+        "shape": "ellipse",
+        "rot": 0,
+        "rx": 100,
+        "ry": 100,
         "hmin": -50,
         "hmax": 200,
         "baked": false
