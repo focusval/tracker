@@ -3,7 +3,7 @@
 
 import { map, layer, renderSceneList, updateStats, loadScene } from "./app.js";
 import { parsePlyFile, parseSplatFile, writeSplat } from "./formats.js";
-import { centerCloud, filterCrop, estimateLevel } from "./gsmath.js";
+import { centerCloud, filterCrop, estimateLevel, similarity2D, levelHorizontal } from "./gsmath.js";
 import { GitHubClient, HARD_LIMIT, probeGitHub } from "./github.js";
 import { makeZip } from "./zip.js";
 import { state, rt, serializeScenes, sceneParams, detectRepo } from "./state.js";
@@ -803,7 +803,11 @@ function wireAlign(){
   $("#alignBtn").addEventListener("click", () => {
     if (alignMode) exitAlign(); else enterAlign();
   });
-  $("#alignApplyBtn").addEventListener("click", applyAlign);
+  // помилка тут не має бути тихою: раніше ReferenceError у applyAlign
+  // виглядав як «кнопка не працює»
+  $("#alignApplyBtn").addEventListener("click", () => {
+    try { applyAlign(); } catch (err) { toastError(err); }
+  });
   $("#alignClearBtn").addEventListener("click", () => {
     const sc = selected(); if (!sc) return;
     clearAlignMarkers();
