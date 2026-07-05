@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-05T17:13:38.138Z",
+  "updated": "2026-07-05T17:20:21.948Z",
   "scenes": [
     {
       "id": "smr7u8ix7",
@@ -125,6 +125,32 @@
         "on": true,
         "shape": "rect",
         "rot": 21,
+        "rx": 500,
+        "ry": 500,
+        "hmin": -50,
+        "hmax": 200,
+        "baked": false
+      }
+    },
+    {
+      "id": "smr81wblj",
+      "name": "gs_Sever_5",
+      "file": "scenes/smr81wblj.splat",
+      "lng": 38.51862256103702,
+      "lat": 48.93723886916415,
+      "alt": -80,
+      "rx": -91.5,
+      "ry": 4.5,
+      "rz": -176.10324550892028,
+      "scale": 185.1768420673193,
+      "visible": true,
+      "count": 1166255,
+      "size": 37320160,
+      "v": 0,
+      "crop": {
+        "on": true,
+        "shape": "rect",
+        "rot": -15,
         "rx": 500,
         "ry": 500,
         "hmin": -50,
