@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-05T19:18:42.553Z",
+  "updated": "2026-07-06T08:52:45.850Z",
   "scenes": [
     {
       "id": "smr7u8ix7",
@@ -260,6 +260,32 @@
         "hmin": -50,
         "hmax": 200,
         "invert": false,
+        "baked": false
+      }
+    },
+    {
+      "id": "smr8zewii",
+      "name": "gs_Depo",
+      "file": "scenes/smr8zewii.splat",
+      "lng": 38.53145304655729,
+      "lat": 48.944124325261924,
+      "alt": 0,
+      "rx": 0,
+      "ry": 0,
+      "rz": 0,
+      "scale": 1,
+      "visible": true,
+      "count": 1085338,
+      "size": 34730816,
+      "v": 0,
+      "crop": {
+        "on": false,
+        "shape": "ellipse",
+        "rot": 0,
+        "rx": 100,
+        "ry": 100,
+        "hmin": -50,
+        "hmax": 200,
         "baked": false
       }
     }
