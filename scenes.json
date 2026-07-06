@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-06T20:05:31.216Z",
+  "updated": "2026-07-06T20:14:48.686Z",
   "scenes": [
     {
       "id": "smr7u8ix7",
@@ -50,10 +50,10 @@
         "on": true,
         "shape": "rect",
         "rot": 158,
-        "rx": 562,
-        "ry": 500,
-        "ox": 56.63435630866117,
-        "oy": -22.881765231991892,
+        "rx": 755,
+        "ry": 968,
+        "ox": 154.34223641797956,
+        "oy": 249.54509478361845,
         "hmin": -50,
         "hmax": 13,
         "invert": false,
@@ -130,21 +130,21 @@
       "rz": 42.02990492553181,
       "scale": 41.856019385914365,
       "visible": true,
-      "count": 1083618,
-      "size": 34675776,
-      "v": 0,
+      "count": 788984,
+      "size": 25247488,
+      "v": 1,
       "crop": {
-        "on": true,
+        "on": false,
         "shape": "rect",
         "rot": 21,
         "rx": 500,
-        "ry": 500,
+        "ry": 555,
         "ox": 0,
         "oy": 0,
         "hmin": -50,
         "hmax": 200,
         "invert": false,
-        "baked": false
+        "baked": true
       }
     },
     {
@@ -317,6 +317,7 @@
         "oy": 166.39352595997016,
         "hmin": -50,
         "hmax": 200,
+        "invert": false,
         "baked": false
       }
     }
