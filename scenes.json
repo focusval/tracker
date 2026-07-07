@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-07T09:58:34.047Z",
+  "updated": "2026-07-07T10:00:12.306Z",
   "scenes": [
     {
       "id": "smr7u8ix7",
@@ -217,21 +217,21 @@
       "rz": 88.25736967807825,
       "scale": 95.90447952395589,
       "visible": true,
-      "count": 1104219,
-      "size": 35335008,
-      "v": 0,
+      "count": 926668,
+      "size": 29653376,
+      "v": 1,
       "crop": {
-        "on": true,
+        "on": false,
         "shape": "rect",
         "rot": -71,
-        "rx": 325,
-        "ry": 161,
+        "rx": 569,
+        "ry": 484,
         "ox": 0,
         "oy": 0,
         "hmin": -50,
         "hmax": 200,
         "invert": false,
-        "baked": false
+        "baked": true
       }
     },
     {
