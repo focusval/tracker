@@ -71,6 +71,10 @@ export class GitHubClient {
         method,
         headers: { ...this._headers(), ...(body ? {"Content-Type": "application/json"} : {}) },
         body: body ? JSON.stringify(body) : undefined,
+        // no-store: метадані (sha тощо) не мусять читатися з HTTP-кешу. Інакше
+        // кеш, що ігнорує Vary:Accept, може віддати на цей самий URL сиру
+        // .splat-відповідь від getRawFile → res.json() падає «not valid JSON».
+        cache: "no-store",
       });
     } catch (err) {
       console.error("GitHub fetch не пішов:", err);
@@ -82,7 +86,12 @@ export class GitHubClient {
       throw new GitHubError(res.status, detail);
     }
     if (res.status === 204) return null;
-    return res.json();
+    try {
+      return await res.json();
+    } catch {
+      // відповідь не JSON (напр. кеш/проксі віддав сирий файл) — зрозуміла помилка
+      throw new Error("GitHub повернув неочікувану (не-JSON) відповідь. Онови сторінку (з очищенням кешу) і спробуй ще раз.");
+    }
   }
 
   _repoPath(p){
@@ -116,6 +125,9 @@ export class GitHubClient {
     try {
       res = await fetch(API + this._repoPath(`contents/${path}?ref=${this.branch}`), {
         headers: { ...this._headers(), "Accept": "application/vnd.github.raw+json" },
+        // no-store: сира .splat-відповідь не має потрапляти в HTTP-кеш, інакше
+        // її можуть віддати на запит метаданих (getFileSha) як «JSON» → помилка
+        cache: "no-store",
       });
     } catch {
       throw new GitHubError(0);
