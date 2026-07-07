@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-07-07T10:11:09.112Z",
+  "updated": "2026-07-07T10:16:50.566Z",
   "scenes": [
     {
       "id": "smr7u8ix7",
@@ -325,26 +325,29 @@
       "id": "smrahnn1z",
       "name": "gs_Park",
       "file": "scenes/smrahnn1z.splat",
-      "lng": 38.476633745698564,
-      "lat": 48.957721386427295,
-      "alt": 0,
-      "rx": 0,
-      "ry": 0,
-      "rz": 0,
-      "scale": 1,
+      "lng": 38.4841003180841,
+      "lat": 48.954395515396506,
+      "alt": 6.163181471116709,
+      "rx": -86,
+      "ry": -1,
+      "rz": -65.53884734542805,
+      "scale": 137.61944422602267,
       "visible": true,
-      "count": 1081987,
-      "size": 34623584,
-      "v": 0,
+      "count": 924045,
+      "size": 29569440,
+      "v": 1,
       "crop": {
         "on": false,
-        "shape": "ellipse",
-        "rot": 0,
-        "rx": 100,
-        "ry": 100,
+        "shape": "rect",
+        "rot": 25,
+        "rx": 1045,
+        "ry": 1335,
+        "ox": 0,
+        "oy": 0,
         "hmin": -50,
         "hmax": 200,
-        "baked": false
+        "invert": false,
+        "baked": true
       }
     }
   ]
