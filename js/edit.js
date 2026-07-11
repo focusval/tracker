@@ -377,6 +377,10 @@ function wireCalib(){
     const sc = selected();
     if (sc) autoLevelScene(sc).catch((e) => { toastError(e); hideProgress(); });
   });
+  $("#dupBtn").addEventListener("click", () => {
+    const sc = selected();
+    if (sc) duplicateScene(sc).catch((e) => { toastError(e); hideProgress(); });
+  });
   $("#deleteBtn").addEventListener("click", () => {
     const sc = selected();
     if (sc) deleteScene(sc).catch((e) => { toastError(e); hideProgress(); });
@@ -1151,8 +1155,8 @@ async function bakeScene(sc){
   if (!hasCrop && !hasErase){ toast("Немає що запікати — увімкни обрізку або зітри щось гумкою.", "info"); return; }
   const cropWord = sc.crop.invert ? "видалення області" : "обрізку";
   const what = hasCrop && hasErase ? (cropWord + " і стирання") : hasCrop ? cropWord : "стирання";
-  if (!confirm("Запекти " + what + " назавжди? Оригінал буде збережено поруч як " +
-    sc.file.replace(/\.splat$/, ".orig.splat") + ".")) return;
+  if (!confirm("Запекти " + what + " назавжди? Відсічені сплати буде видалено БЕЗ резервної копії " +
+    "(місце в архіві не витрачається). Потрібна страховка — спершу зроби «Дублювати сцену».")) return;
 
   const r = rt(sc.id);
   const origBytes = await sceneBytes(sc, "Завантажую оригінал сцени");
@@ -1169,14 +1173,13 @@ async function bakeScene(sc){
   const removed = data.count - keep.length;
   const savedBytes = origBytes.byteLength - newBytes.byteLength;
 
-  // 1) оригінал → *.orig.splat (лише якщо його там ще нема)
+  // 1) резервну копію НЕ зберігаємо (відсічене не має займати місця в архіві);
+  // якщо від старих запікань лишився *.orig.splat — прибираємо і його
   const origPath = sc.file.replace(/\.splat$/, ".orig.splat");
-  const origSha = await state.client.getFileSha(origPath);
-  if (!origSha){
-    showProgress("Зберігаю оригінал " + origPath + " · 0%", 0);
-    await state.client.putFile(origPath, origBytes, "Оригінал сцени «" + sc.name + "» перед запіканням",
-      (f) => showProgress("Зберігаю оригінал · " + fmtPct(f), f));
-  }
+  try {
+    showProgress("Прибираю стару резервну копію (якщо є)…");
+    await state.client.deleteFile(origPath, "Видалено оригінал сцени «" + sc.name + "» (звільнення місця)");
+  } catch { /* не критично — файл прибереться при наступному запіканні чи видаленні сцени */ }
   // 2) обрізаний файл замість старого
   showProgress("Комічу оброблену сцену · 0%", 0);
   await state.client.putFile(sc.file, newBytes, "Запечено " + what + " сцени «" + sc.name + "»",
@@ -1209,6 +1212,44 @@ async function bakeScene(sc){
   await saveArchive();
   toast("Запечено: −" + fmtInt(removed) + " сплатів · −" + fmtMB(savedBytes) +
     " (лишилось " + fmtInt(keep.length) + ")", "ok", 10000);
+}
+
+// ── дублювання ──
+
+// Повна копія вибраної сцени: той самий вміст файлу, ті самі налаштування,
+// позиція трохи поруч. Копія одразу комітиться (файл + scenes.json), щоб у
+// репозиторії не з'являлись файли-сироти. Зручно як страховка перед запіканням.
+async function duplicateScene(sc){
+  if (!state.client){ showTokenForm(); toast("Спочатку введи токен GitHub.", "error"); return; }
+  const bytes = await sceneBytes(sc, "Завантажую сцену для копії");
+  const id = "s" + Date.now().toString(36);
+  const copy = {
+    ...sc,
+    id,
+    name: sc.name + " (копія)",
+    file: "scenes/" + id + ".splat",
+    lng: sc.lng + 0.0004, // ~30 м східніше, щоб копію було видно поруч з оригіналом
+    crop: { ...sc.crop },
+    v: 0,
+  };
+  state.scenes.push(copy);
+  const r = rt(id);
+  r.loaded = true; r.needsCommit = true; r.bytesCache = bytes;
+  layer.addScene(id, parseSplatFile(bytes), sceneParams(copy), copy.visible, copy.crop);
+  markDirty(); renderSceneList(); updateStats(); selectScene(id);
+  toast("Копію створено на карті. Комічу файл у репозиторій…", "info");
+  await commitSceneFile(copy);
+  if (!rt(id).needsCommit){
+    try {
+      await state.client.putFileSmall("scenes.json", serializeScenes(state.scenes),
+        "Додано копію сцени «" + copy.name + "» до scenes.json");
+      state.dirty = false; updateDirtyDot();
+      toast("Копію «" + copy.name + "» збережено в архів.", "ok", 8000);
+    } catch (err) {
+      toastError(err);
+      toast("Файл копії є в репо, але scenes.json не оновився — натисни «Зберегти в архів».", "error", 9000);
+    }
+  }
 }
 
 // ── видалення ──
