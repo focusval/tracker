@@ -170,17 +170,40 @@ body.editing #editBtn { border-color: var(--accent); color: var(--accent); }
 .empty { color: var(--muted); padding: 6px 0 12px; }
 .hint { color: var(--muted); font-size: 13px; margin: 8px 0; }
 
-/* список сцен */
+/* заголовок списку локацій + кнопка «сховати всі» */
+.loc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.loc-head button { min-height: 36px; padding: 4px 10px; font-size: 13px; }
+
+/* список сцен: рядок = галочка видимості + кнопка-назва */
 .scene-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .scene-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding-left: 10px;
+}
+.scene-row .scene-vis { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+.scene-open {
+  flex: 1;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
+  min-height: 46px;
+  padding: 10px 12px 10px 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
   text-align: left;
-  width: 100%;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
-.scene-row.off { opacity: .5; }
+.scene-row.off .scene-open { opacity: .5; }
 .scene-row.sel { border-color: var(--accent); }
 .scene-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scene-meta {
