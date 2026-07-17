@@ -159,6 +159,11 @@ export function updateStats(){
 export function renderSceneList(){
   const box = $("#sceneList");
   box.innerHTML = "";
+  const hideAll = $("#hideAllBtn");
+  if (hideAll){
+    hideAll.hidden = !state.scenes.length;
+    hideAll.textContent = state.scenes.some((s) => s.visible) ? "🙈 Сховати всі" : "👁 Показати всі";
+  }
   if (!state.scenes.length){
     const p = document.createElement("p");
     p.className = "empty";
@@ -167,19 +172,70 @@ export function renderSceneList(){
     return;
   }
   for (const sc of state.scenes){
-    const row = document.createElement("button");
-    row.type = "button";
+    const row = document.createElement("div");
     row.className = "scene-row" + (sc.visible ? "" : " off") + (state.selectedId === sc.id ? " sel" : "");
     const r = rt(sc.id);
     const status = !sc.visible ? "схована" : r.loaded ? fmtInt(sc.count) + " сплатів" : r.loading ? "вантажиться…" : "не завантажена";
-    row.innerHTML = `<span class="scene-name"></span><span class="scene-meta"></span>`;
+    row.innerHTML = `<input type="checkbox" class="scene-vis" title="Показувати сцену на карті">` +
+      `<button type="button" class="scene-open"><span class="scene-name"></span><span class="scene-meta"></span></button>`;
     row.querySelector(".scene-name").textContent = sc.name;
     row.querySelector(".scene-meta").textContent = status;
-    row.addEventListener("click", () => {
+    const chk = row.querySelector(".scene-vis");
+    chk.checked = sc.visible;
+    chk.addEventListener("change", () => setSceneVisible(sc, chk.checked));
+    row.querySelector(".scene-open").addEventListener("click", () => {
       flyToScene(sc);
       if (state.editing && window.__edit) window.__edit.selectScene(sc.id);
     });
     box.appendChild(row);
+  }
+}
+
+// У режимі редагування зміна видимості — це незбережена зміна конфігурації:
+// ставимо крапку на «Зберегти в архів» і синхронізуємо панель калібрування.
+function noteVisibilityEdited(){
+  if (!state.editing) return;
+  state.dirty = true;
+  const save = $("#saveBtn");
+  if (save) save.classList.add("dirty");
+  const sel = state.scenes.find((s) => s.id === state.selectedId);
+  if (sel){
+    const chk = $("#visChk");
+    if (chk) chk.checked = sel.visible;
+  }
+}
+
+// Перемикання видимості сцени галочкою у списку. Схована сцена не рендериться
+// і не вантажиться (економія пам'яті телефона); показана — довантажується.
+export function setSceneVisible(sc, v){
+  sc.visible = v;
+  layer.setVisible(sc.id, v);
+  noteVisibilityEdited();
+  if (v && !rt(sc.id).loaded) loadScene(sc).catch(toastError);
+  updateStats();
+  renderSceneList();
+}
+
+// «Сховати всі / Показати всі»: показ довантажує сцени по черзі (як при
+// старті), щоб не задушити пам'ять телефона паралельними завантаженнями.
+async function toggleAllScenes(show){
+  for (const sc of state.scenes){
+    sc.visible = show;
+    layer.setVisible(sc.id, show);
+  }
+  noteVisibilityEdited();
+  updateStats();
+  renderSceneList();
+  if (show){
+    for (const sc of state.scenes){
+      if (!rt(sc.id).loaded){
+        try {
+          await loadScene(sc);
+        } catch (err) {
+          toastError(new Error(`«${sc.name}»: ${err.message}`));
+        }
+      }
+    }
   }
 }
 
@@ -198,6 +254,11 @@ export function renderSceneList(){
     else $("#sheet").classList.toggle("open");
   });
 }
+
+$("#hideAllBtn").addEventListener("click", () => {
+  const anyVisible = state.scenes.some((s) => s.visible);
+  toggleAllScenes(!anyVisible).catch(toastError);
+});
 
 $("#editBtn").addEventListener("click", async () => {
   try {
